@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { AuthenticatedSession } from "./auth/session";
 import {
   adaptEvidence,
   adaptFarmSite,
@@ -31,7 +32,8 @@ import type {
   Plot,
   Review,
   ReviewComment,
-  ReviewStatus
+  ReviewStatus,
+  WorkspaceRole
 } from "./types";
 
 export type ScreenKey = "checklist" | "evidence" | "review";
@@ -58,20 +60,32 @@ interface EvidenceUploadInput {
 
 export interface AppState {
   useMocks: boolean;
+  authMode: AuthenticatedSession["mode"];
+
   organizationId: ID;
   farmId: ID;
   plotId: ID;
   setOrganizationId: (id: ID) => void;
   setFarmId: (id: ID) => void;
   setPlotId: (id: ID) => void;
+
   screen: ScreenKey;
   setScreen: (s: ScreenKey) => void;
+
+  viewer: {
+    name: string;
+    email: string;
+    role: WorkspaceRole;
+  };
+  signOut: () => Promise<void>;
+
   organizations: Organization[];
   farms: Farm[];
   plots: Plot[];
   gapItems: GapChecklistItem[];
   evidence: Evidence[];
   reviews: Review[];
+
   status: {
     organizations: AsyncStatus;
     farms: AsyncStatus;
@@ -86,12 +100,20 @@ export interface AppState {
     evidence: DataSourceState;
     reviews: DataSourceState;
   };
+
   refreshAll: () => Promise<void>;
   updateGapStatus: (gapItemId: ID, status: GapItemStatus) => void;
   addEvidence: (input: EvidenceUploadInput) => Evidence;
   retryEvidence: (evidenceId: ID) => void;
-  addReviewComment: (reviewId: ID, body: string, authorName: string) => void;
+  addReviewComment: (reviewId: ID, body: string) => void;
   setReviewStatus: (reviewId: ID, status: ReviewStatus) => void;
+}
+
+interface UseAppStateOptions {
+  session: AuthenticatedSession;
+  signOut: () => Promise<void>;
+  setActiveOrganizationId: (organizationId: string) => void;
+  syncMemberships: (organizations: Organization[]) => void;
 }
 
 export function inferKind(filename: string): EvidenceKind {
@@ -124,7 +146,12 @@ function upsertById<T extends { id: string }>(items: T[], next: T): T[] {
   return [...items.filter((item) => item.id !== next.id), next];
 }
 
-export function useAppState(): AppState {
+export function useAppState({
+  session,
+  signOut,
+  setActiveOrganizationId,
+  syncMemberships
+}: UseAppStateOptions): AppState {
   const useMocks = apiConfig.useMocks;
   const pendingUploadsRef = useRef(new Map<ID, EvidenceUploadInput>());
 
@@ -164,10 +191,18 @@ export function useAppState(): AppState {
     { enabled: !useMocks }
   );
 
+  const membershipOrgIds = useMemo(
+    () => new Set(session.memberships.map((membership) => membership.organizationId)),
+    [session.memberships]
+  );
+
   const organizations: Organization[] = useMemo(() => {
-    if (useMocks) return mockOrganizations;
-    return (orgsRes.data?.items ?? []).map(adaptOrganization);
-  }, [useMocks, orgsRes.data]);
+    const allOrganizations = useMocks
+      ? mockOrganizations
+      : (orgsRes.data?.items ?? []).map(adaptOrganization);
+    if (membershipOrgIds.size === 0) return allOrganizations;
+    return allOrganizations.filter((organization) => membershipOrgIds.has(organization.id));
+  }, [useMocks, orgsRes.data, membershipOrgIds]);
 
   const farms: Farm[] = useMemo(() => {
     if (useMocks) return mockFarms;
@@ -195,11 +230,14 @@ export function useAppState(): AppState {
     if (useMocks) {
       return [...localEvidenceOverrides, ...initialEvidence];
     }
+
     const gapRecordToPlotId = (gapRecordId: string) =>
       gapItems.find((item) => item.id === gapRecordId)?.plotId;
+
     const remote = (evidenceRes.data?.items ?? []).map((item) =>
       adaptEvidence(item, { gapRecordToPlotId })
     );
+
     return [
       ...localEvidenceOverrides,
       ...remote.filter((item) => !localEvidenceOverrides.some((local) => local.id === item.id))
@@ -228,10 +266,25 @@ export function useAppState(): AppState {
 
   useEffect(() => {
     if (organizations.length === 0) return;
-    if (!organizations.some((organization) => organization.id === organizationId)) {
-      setOrganizationIdState(organizations[0].id);
+    syncMemberships(organizations);
+  }, [organizations, syncMemberships]);
+
+  useEffect(() => {
+    if (organizations.length === 0) return;
+    const preferredOrganizationId = session.activeOrganizationId;
+    const nextOrganizationId = organizations.some((organization) => organization.id === organizationId)
+      ? organizationId
+      : organizations.find((organization) => organization.id === preferredOrganizationId)?.id ??
+        organizations[0].id;
+    if (nextOrganizationId !== organizationId) {
+      setOrganizationIdState(nextOrganizationId);
     }
-  }, [organizations, organizationId]);
+  }, [organizations, organizationId, session.activeOrganizationId]);
+
+  useEffect(() => {
+    if (!organizationId) return;
+    setActiveOrganizationId(organizationId);
+  }, [organizationId, setActiveOrganizationId]);
 
   useEffect(() => {
     const farmsForOrg = farms.filter((farm) => farm.organizationId === organizationId);
@@ -258,6 +311,19 @@ export function useAppState(): AppState {
   const setOrganizationId = useCallback((id: ID) => setOrganizationIdState(id), []);
   const setFarmId = useCallback((id: ID) => setFarmIdState(id), []);
   const setPlotId = useCallback((id: ID) => setPlotIdState(id), []);
+
+  const activeOrganization = organizations.find((organization) => organization.id === organizationId);
+  const viewerRole =
+    activeOrganization?.role ??
+    session.memberships.find((membership) => membership.organizationId === organizationId)?.workspaceRole ??
+    session.memberships.find(
+      (membership) => membership.organizationId === session.activeOrganizationId
+    )?.workspaceRole ??
+    "farmer";
+  const viewerName =
+    session.user.displayName?.trim() ||
+    session.user.email ||
+    session.user.id;
 
   const setLocalEvidenceState = useCallback(
     (evidenceId: ID, updater: (current: Evidence) => Evidence) => {
@@ -291,7 +357,9 @@ export function useAppState(): AppState {
       }
 
       setLocalGapItemOverrides((prev) => {
-        const existing = prev.find((item) => item.id === gapItemId) ?? gapItems.find((item) => item.id === gapItemId);
+        const existing =
+          prev.find((item) => item.id === gapItemId) ??
+          gapItems.find((item) => item.id === gapItemId);
         if (!existing) return prev;
         const next: GapChecklistItem = {
           ...existing,
@@ -398,7 +466,9 @@ export function useAppState(): AppState {
       }
 
       setLocalGapItemOverrides((prev) => {
-        const existing = prev.find((item) => item.id === gapItemId) ?? gapItems.find((item) => item.id === gapItemId);
+        const existing =
+          prev.find((item) => item.id === gapItemId) ??
+          gapItems.find((item) => item.id === gapItemId);
         if (!existing) return prev;
         return upsertById(prev, { ...existing, status, updatedAt });
       });
@@ -492,18 +562,20 @@ export function useAppState(): AppState {
   );
 
   const addReviewComment = useCallback(
-    (reviewId: ID, body: string, authorName: string) => {
+    (reviewId: ID, body: string) => {
       const comment: ReviewComment = {
         id: `cm-${Math.random().toString(36).slice(2, 9)}`,
         reviewId,
-        authorName,
-        authorRole: "advisor",
+        authorName: viewerName,
+        authorRole: viewerRole,
         body,
         createdAt: new Date().toISOString()
       };
 
       setLocalReviewOverrides((prev) => {
-        const existing = prev.find((review) => review.id === reviewId) ?? reviews.find((review) => review.id === reviewId);
+        const existing =
+          prev.find((review) => review.id === reviewId) ??
+          reviews.find((review) => review.id === reviewId);
         if (!existing) return prev;
         const nextReview: Review = {
           ...existing,
@@ -513,14 +585,16 @@ export function useAppState(): AppState {
         return upsertById(prev, nextReview);
       });
     },
-    [reviews]
+    [reviews, viewerName, viewerRole]
   );
 
   const setReviewStatus = useCallback(
     (reviewId: ID, status: ReviewStatus) => {
       const updatedAt = new Date().toISOString();
       setLocalReviewOverrides((prev) => {
-        const existing = prev.find((review) => review.id === reviewId) ?? reviews.find((review) => review.id === reviewId);
+        const existing =
+          prev.find((review) => review.id === reviewId) ??
+          reviews.find((review) => review.id === reviewId);
         if (!existing) return prev;
         return upsertById(prev, { ...existing, status, updatedAt });
       });
@@ -568,6 +642,7 @@ export function useAppState(): AppState {
   return useMemo<AppState>(
     () => ({
       useMocks,
+      authMode: session.mode,
       organizationId,
       farmId,
       plotId,
@@ -576,6 +651,12 @@ export function useAppState(): AppState {
       setPlotId,
       screen,
       setScreen,
+      viewer: {
+        name: viewerName,
+        email: session.user.email,
+        role: viewerRole
+      },
+      signOut,
       organizations,
       farms,
       plots,
@@ -601,6 +682,7 @@ export function useAppState(): AppState {
     }),
     [
       useMocks,
+      session.mode,
       organizationId,
       farmId,
       plotId,
@@ -608,6 +690,10 @@ export function useAppState(): AppState {
       setFarmId,
       setPlotId,
       screen,
+      viewerName,
+      viewerRole,
+      session.user.email,
+      signOut,
       organizations,
       farms,
       plots,

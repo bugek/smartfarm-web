@@ -42,12 +42,24 @@ The store can run in two modes:
 - **Live API mode** — typed client in `src/api/` talks to `smartfarm-api`.
 
 Switch by copying `.env.example` to `.env.local` and setting
-`VITE_USE_MOCKS=false` plus the dev tenant headers
-(`VITE_DEV_USER_ID`, `VITE_DEV_ORG_ID`). Real auth lands in a separate child
-issue; the dev headers stand in until then.
+`VITE_USE_MOCKS=false`.
+
+Auth modes:
+
+- **auto (default)** - mock session when `VITE_USE_MOCKS=true`, otherwise uses
+  `VITE_DEV_USER_ID` / `VITE_DEV_ORG_ID` when present, else shows the login
+  screen and uses the auth API.
+- **dev_headers** - bypasses login and sends `x-user-id`,
+  `x-organization-id`, and optional `x-membership-role` on each request.
+- **api** - stores access and refresh tokens in local storage, refreshes the
+  session automatically, and gates the GAP shell on organization membership.
 
 Endpoints currently wired live:
 
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/refresh`
+- `GET /api/v1/auth/session`
+- `POST /api/v1/auth/logout`
 - `GET /api/v1/organizations`
 - `GET /api/v1/farm-sites`
 - `GET /api/v1/plots`

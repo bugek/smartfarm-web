@@ -3,11 +3,14 @@
 // API responses without reshaping components.
 
 export type ID = string;
+export type OrganizationMembershipRole = "admin" | "compliance_lead" | "expert" | "worker";
+export type WorkspaceRole = "farmer" | "advisor" | "compliance";
 
 export interface Organization {
   id: ID;
   name: string;
-  role: "farmer" | "advisor" | "compliance";
+  role: WorkspaceRole;
+  membershipRole: OrganizationMembershipRole;
 }
 
 export interface Farm {
@@ -62,7 +65,7 @@ export interface ReviewComment {
   id: ID;
   reviewId: ID;
   authorName: string;
-  authorRole: "advisor" | "farmer" | "compliance";
+  authorRole: WorkspaceRole;
   body: string;
   createdAt: string;
 }
