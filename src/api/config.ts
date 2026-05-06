@@ -6,7 +6,7 @@
 // - api: login + stored bearer tokens with refresh
 //
 // Required when VITE_USE_MOCKS is "false":
-//   VITE_API_BASE_URL  e.g. http://localhost:4000
+//   VITE_API_BASE_URL  e.g. http://localhost:3200
 //
 // Required for dev_headers mode:
 //   VITE_DEV_USER_ID   user id with a membership in VITE_DEV_ORG_ID
@@ -34,7 +34,7 @@ export function loadApiConfig(): ApiConfig {
   const useMocks = useMocksRaw === "" ? true : useMocksRaw !== "false";
   return {
     useMocks,
-    baseUrl: readEnv("VITE_API_BASE_URL") || "http://localhost:4000",
+    baseUrl: readEnv("VITE_API_BASE_URL") || "http://localhost:3200",
     devUserId: readEnv("VITE_DEV_USER_ID"),
     devOrganizationId: readEnv("VITE_DEV_ORG_ID"),
     devMembershipRole: readEnv("VITE_DEV_MEMBERSHIP_ROLE") || undefined

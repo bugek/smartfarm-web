@@ -54,6 +54,14 @@ Auth modes:
 - **api** - stores access and refresh tokens in local storage, refreshes the
   session automatically, and gates the GAP shell on organization membership.
 
+Local auth smoke:
+
+- start `smartfarm-api` on its default `http://localhost:3200`
+- set `VITE_USE_MOCKS=false`
+- leave `VITE_DEV_USER_ID` / `VITE_DEV_ORG_ID` empty so the login screen renders
+- sign in with the bootstrap account from `smartfarm-api`:
+  `demo@smartfarm.local` / `smartfarm-demo`
+
 Endpoints currently wired live:
 
 - `POST /api/v1/auth/login`
