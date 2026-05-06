@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import type { AppState, ScreenKey } from "../store";
+import type { AppState } from "../store";
 import { inferKind } from "../store";
 import { formatBytes, formatDate, statusLabel } from "../format";
 import type { EvidenceKind } from "../types";
@@ -16,7 +16,6 @@ const KIND_ICON: Record<EvidenceKind, string> = {
 
 export function EvidenceScreen({ state }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [selectedGapItem, setSelectedGapItem] = useState<string>("");
   const [note, setNote] = useState<string>("");
   const [filterKind, setFilterKind] = useState<EvidenceKind | "all">("all");
 
@@ -38,7 +37,7 @@ export function EvidenceScreen({ state }: Props) {
     Array.from(files).forEach((file) => {
       state.addEvidence({
         plotId: state.plotId,
-        gapItemId: selectedGapItem || undefined,
+        gapItemId: state.selectedGapItemId || undefined,
         kind: inferKind(file.name),
         filename: file.name,
         sizeBytes: file.size,
@@ -81,8 +80,8 @@ export function EvidenceScreen({ state }: Props) {
           <label>
             <span className="label">Linked GAP item</span>
             <select
-              value={selectedGapItem}
-              onChange={(e) => setSelectedGapItem(e.target.value)}
+              value={state.selectedGapItemId}
+              onChange={(e) => state.setSelectedGapItemId(e.target.value)}
             >
               <option value="">Unlinked (general plot evidence)</option>
               {plotGapItems.map((item) => (
@@ -163,6 +162,11 @@ export function EvidenceScreen({ state }: Props) {
           <ul className="evidence-list">
             {visible.map((e) => {
               const linked = state.gapItems.find((g) => g.id === e.gapItemId);
+              const linkedReview = state.reviews.find(
+                (review) =>
+                  (review.plotId === state.plotId || (!state.useMocks && review.plotId === "")) &&
+                  review.gapItemId === e.gapItemId
+              );
               return (
                 <li key={e.id} className="evidence-item">
                   <div className={`kind kind-${e.kind}`}>{KIND_ICON[e.kind]}</div>
@@ -192,7 +196,7 @@ export function EvidenceScreen({ state }: Props) {
                     <button
                       type="button"
                       className="btn btn-ghost"
-                      onClick={() => state.setScreen("review" as ScreenKey)}
+                      onClick={() => state.openReview(linkedReview?.id)}
                     >
                       View review
                     </button>

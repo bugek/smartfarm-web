@@ -25,6 +25,17 @@ Phase 1 is GAP-first:
 - TypeScript
 - Vite
 
+## Routing
+
+The shell uses hash routes so plot deep links work in local preview and static
+hosting without extra rewrite rules.
+
+Examples:
+
+- `#/checklist?org=org-1&farm=farm-1&plot=plot-1`
+- `#/evidence?org=org-1&farm=farm-1&plot=plot-1&gapItem=gap-3`
+- `#/review?org=org-1&farm=farm-1&plot=plot-1&review=rev-2`
+
 ## Scripts
 
 ```bash
