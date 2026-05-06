@@ -1,18 +1,26 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { adaptEvidence, adaptFarmSite, adaptOrganization, adaptPlot } from "./api/adapters";
+import { ApiError } from "./api/client";
+import { apiConfig } from "./api/config";
+import { SmartFarmApi } from "./api/endpoints";
+import { useResource } from "./api/useResource";
 import {
   evidence as initialEvidence,
-  farms,
+  farms as mockFarms,
   gapItems as initialGapItems,
-  organizations,
-  plots,
+  organizations as mockOrganizations,
+  plots as mockPlots,
   reviews as initialReviews
 } from "./mock-data";
 import type {
   Evidence,
   EvidenceKind,
+  Farm,
   GapChecklistItem,
   GapItemStatus,
   ID,
+  Organization,
+  Plot,
   Review,
   ReviewComment,
   ReviewStatus
@@ -20,7 +28,15 @@ import type {
 
 export type ScreenKey = "checklist" | "evidence" | "review";
 
+export interface AsyncStatus {
+  isLoading: boolean;
+  error?: { code?: string; message: string };
+}
+
 export interface AppState {
+  // mode
+  useMocks: boolean;
+
   // context
   organizationId: ID;
   farmId: ID;
@@ -33,13 +49,24 @@ export interface AppState {
   screen: ScreenKey;
   setScreen: (s: ScreenKey) => void;
 
-  // data (mock-backed)
-  organizations: typeof organizations;
-  farms: typeof farms;
-  plots: typeof plots;
+  // data
+  organizations: Organization[];
+  farms: Farm[];
+  plots: Plot[];
   gapItems: GapChecklistItem[];
   evidence: Evidence[];
   reviews: Review[];
+
+  // async metadata
+  status: {
+    organizations: AsyncStatus;
+    farms: AsyncStatus;
+    plots: AsyncStatus;
+    evidence: AsyncStatus;
+    reviews: AsyncStatus;
+    gapItems: AsyncStatus;
+  };
+  refreshAll: () => Promise<void>;
 
   // actions
   updateGapStatus: (gapItemId: ID, status: GapItemStatus) => void;
@@ -56,43 +83,139 @@ export interface AppState {
   setReviewStatus: (reviewId: ID, status: ReviewStatus) => void;
 }
 
-function inferKindFromFilename(filename: string): EvidenceKind {
+export function inferKind(filename: string): EvidenceKind {
   const ext = filename.split(".").pop()?.toLowerCase() ?? "";
   if (["jpg", "jpeg", "png", "webp", "heic", "gif"].includes(ext)) return "image";
   if (["mp4", "mov", "webm", "mkv", "avi"].includes(ext)) return "video";
   return "document";
 }
 
-export function inferKind(filename: string): EvidenceKind {
-  return inferKindFromFilename(filename);
+const EMPTY_STATUS: AsyncStatus = { isLoading: false };
+
+function statusFromError(isLoading: boolean, error: ApiError | undefined): AsyncStatus {
+  if (error) return { isLoading, error: { code: error.code, message: error.message } };
+  return { isLoading };
 }
 
 export function useAppState(): AppState {
-  const [organizationId, setOrganizationId] = useState<ID>(organizations[0].id);
-  const [farmId, setFarmIdRaw] = useState<ID>(farms[0].id);
-  const [plotId, setPlotIdRaw] = useState<ID>(plots[0].id);
-  const [screen, setScreen] = useState<ScreenKey>("checklist");
+  const useMocks = apiConfig.useMocks;
+
+  // ---------- Remote resources (skipped when in mock mode) ----------
+  const orgsRes = useResource(
+    () => SmartFarmApi.organizations.list(),
+    [useMocks],
+    { enabled: !useMocks }
+  );
+  const farmSitesRes = useResource(
+    () => SmartFarmApi.farmSites.list(),
+    [useMocks],
+    { enabled: !useMocks }
+  );
+  const plotsRes = useResource(
+    () => SmartFarmApi.plots.list(),
+    [useMocks],
+    { enabled: !useMocks }
+  );
+  const cropCyclesRes = useResource(
+    () => SmartFarmApi.cropCycles.list(),
+    [useMocks],
+    { enabled: !useMocks }
+  );
+  const evidenceRes = useResource(
+    () => SmartFarmApi.evidence.list(),
+    [useMocks],
+    { enabled: !useMocks }
+  );
+
+  // ---------- Adapt to UI types (or use mocks) ----------
+  const organizations: Organization[] = useMemo(() => {
+    if (useMocks) return mockOrganizations;
+    return (orgsRes.data?.items ?? []).map(adaptOrganization);
+  }, [useMocks, orgsRes.data]);
+
+  const farms: Farm[] = useMemo(() => {
+    if (useMocks) return mockFarms;
+    return (farmSitesRes.data?.items ?? []).map(adaptFarmSite);
+  }, [useMocks, farmSitesRes.data]);
+
+  const plots: Plot[] = useMemo(() => {
+    if (useMocks) return mockPlots;
+    const cycles = cropCyclesRes.data?.items ?? [];
+    return (plotsRes.data?.items ?? []).map((p) => adaptPlot(p, cycles));
+  }, [useMocks, plotsRes.data, cropCyclesRes.data]);
+
+  // GAP items: no list endpoint exists in SmartFarm API yet (gap-records is
+  // only used internally by evidence routes). Tracked as a follow-up issue.
+  // Until then, keep a mock-backed checklist so the screen stays usable.
   const [gapItems, setGapItems] = useState<GapChecklistItem[]>(initialGapItems);
-  const [evidence, setEvidence] = useState<Evidence[]>(initialEvidence);
+
+  // Reviews: API exposes per-evidence reviews + a review queue, but no
+  // per-GAP-item review thread with comments yet. Tracked as a follow-up.
   const [reviews, setReviews] = useState<Review[]>(initialReviews);
 
-  const setOrgAndCascade = useCallback((id: ID) => {
-    setOrganizationId(id);
-    const firstFarm = farms.find((f) => f.organizationId === id);
-    if (firstFarm) {
-      setFarmIdRaw(firstFarm.id);
-      const firstPlot = plots.find((p) => p.farmId === firstFarm.id);
-      if (firstPlot) setPlotIdRaw(firstPlot.id);
-    }
-  }, []);
+  // Evidence: server-backed list with local optimistic upload state for
+  // newly added items (real upload client is its own follow-up issue).
+  const [localEvidenceOverrides, setLocalEvidenceOverrides] = useState<Evidence[]>([]);
 
-  const setFarmAndCascade = useCallback((id: ID) => {
-    setFarmIdRaw(id);
-    const firstPlot = plots.find((p) => p.farmId === id);
-    if (firstPlot) setPlotIdRaw(firstPlot.id);
-  }, []);
+  const evidence: Evidence[] = useMemo(() => {
+    if (useMocks) {
+      return [...localEvidenceOverrides, ...initialEvidence];
+    }
+    const remote = (evidenceRes.data?.items ?? []).map((e) =>
+      adaptEvidence(e, {
+        // Without a GAP-record list endpoint, we can't resolve gapRecordId to
+        // a UI plotId. Show all org evidence on every plot for now; once GAP
+        // records are exposed we can filter accurately.
+        gapRecordToPlotId: () => undefined
+      })
+    );
+    return [...localEvidenceOverrides, ...remote];
+  }, [useMocks, evidenceRes.data, localEvidenceOverrides]);
+
+  // ---------- Context selection (default to first available) ----------
+  const [organizationId, setOrganizationIdState] = useState<ID>("");
+  const [farmId, setFarmIdState] = useState<ID>("");
+  const [plotId, setPlotIdState] = useState<ID>("");
+  const [screen, setScreen] = useState<ScreenKey>("checklist");
+
+  // Initial selection cascades when data first arrives or context changes.
+  useEffect(() => {
+    if (organizations.length === 0) return;
+    if (!organizations.some((o) => o.id === organizationId)) {
+      setOrganizationIdState(organizations[0].id);
+    }
+  }, [organizations, organizationId]);
+
+  useEffect(() => {
+    const farmsForOrg = farms.filter((f) => f.organizationId === organizationId);
+    if (farmsForOrg.length === 0) {
+      if (farmId !== "") setFarmIdState("");
+      return;
+    }
+    if (!farmsForOrg.some((f) => f.id === farmId)) {
+      setFarmIdState(farmsForOrg[0].id);
+    }
+  }, [farms, organizationId, farmId]);
+
+  useEffect(() => {
+    const plotsForFarm = plots.filter((p) => p.farmId === farmId);
+    if (plotsForFarm.length === 0) {
+      if (plotId !== "") setPlotIdState("");
+      return;
+    }
+    if (!plotsForFarm.some((p) => p.id === plotId)) {
+      setPlotIdState(plotsForFarm[0].id);
+    }
+  }, [plots, farmId, plotId]);
+
+  const setOrganizationId = useCallback((id: ID) => setOrganizationIdState(id), []);
+  const setFarmId = useCallback((id: ID) => setFarmIdState(id), []);
+  const setPlotId = useCallback((id: ID) => setPlotIdState(id), []);
+
+  // ---------- Mutations ----------
 
   const updateGapStatus = useCallback((gapItemId: ID, status: GapItemStatus) => {
+    // TODO(API): wire to GAP records update endpoint once exposed.
     setGapItems((prev) =>
       prev.map((item) =>
         item.id === gapItemId
@@ -102,52 +225,56 @@ export function useAppState(): AppState {
     );
   }, []);
 
-  const addEvidence = useCallback<AppState["addEvidence"]>((input) => {
-    const id = `ev-${Math.random().toString(36).slice(2, 9)}`;
-    const created: Evidence = {
-      id,
-      plotId: input.plotId,
-      gapItemId: input.gapItemId,
-      kind: input.kind,
-      filename: input.filename,
-      sizeBytes: input.sizeBytes,
-      capturedAt: new Date().toISOString(),
-      state: "uploading",
-      note: input.note
-    };
-    setEvidence((prev) => [created, ...prev]);
+  const addEvidence = useCallback<AppState["addEvidence"]>(
+    (input) => {
+      const id = `ev-local-${Math.random().toString(36).slice(2, 9)}`;
+      const created: Evidence = {
+        id,
+        plotId: input.plotId,
+        gapItemId: input.gapItemId,
+        kind: input.kind,
+        filename: input.filename,
+        sizeBytes: input.sizeBytes,
+        capturedAt: new Date().toISOString(),
+        state: "uploading",
+        note: input.note
+      };
+      setLocalEvidenceOverrides((prev) => [created, ...prev]);
 
-    // Simulate async upload completion. In real API integration this is
-    // replaced with progress events from the upload client.
-    setTimeout(() => {
-      setEvidence((prev) =>
-        prev.map((e) => (e.id === id ? { ...e, state: "uploaded" } : e))
-      );
-      if (input.gapItemId) {
-        setGapItems((prev) =>
-          prev.map((item) =>
-            item.id === input.gapItemId
-              ? {
-                  ...item,
-                  evidenceIds: [...item.evidenceIds, id],
-                  status: item.status === "needs_evidence" ? "in_progress" : item.status,
-                  updatedAt: new Date().toISOString()
-                }
-              : item
-          )
+      // Real presigned upload + evidence submit lives in a separate child
+      // issue. Until then, mark uploaded after a short delay to keep the
+      // UX intent visible end-to-end.
+      window.setTimeout(() => {
+        setLocalEvidenceOverrides((prev) =>
+          prev.map((e) => (e.id === id ? { ...e, state: "uploaded" } : e))
         );
-      }
-    }, 1200);
+        if (input.gapItemId) {
+          setGapItems((prev) =>
+            prev.map((item) =>
+              item.id === input.gapItemId
+                ? {
+                    ...item,
+                    evidenceIds: [...item.evidenceIds, id],
+                    status: item.status === "needs_evidence" ? "in_progress" : item.status,
+                    updatedAt: new Date().toISOString()
+                  }
+                : item
+            )
+          );
+        }
+      }, 1200);
 
-    return created;
-  }, []);
+      return created;
+    },
+    []
+  );
 
   const retryEvidence = useCallback((evidenceId: ID) => {
-    setEvidence((prev) =>
+    setLocalEvidenceOverrides((prev) =>
       prev.map((e) => (e.id === evidenceId ? { ...e, state: "uploading" } : e))
     );
-    setTimeout(() => {
-      setEvidence((prev) =>
+    window.setTimeout(() => {
+      setLocalEvidenceOverrides((prev) =>
         prev.map((e) => (e.id === evidenceId ? { ...e, state: "uploaded" } : e))
       );
     }, 1000);
@@ -155,6 +282,7 @@ export function useAppState(): AppState {
 
   const addReviewComment = useCallback(
     (reviewId: ID, body: string, authorName: string) => {
+      // TODO(API): wire to a real per-review comment endpoint once available.
       const comment: ReviewComment = {
         id: `cm-${Math.random().toString(36).slice(2, 9)}`,
         reviewId,
@@ -166,11 +294,7 @@ export function useAppState(): AppState {
       setReviews((prev) =>
         prev.map((r) =>
           r.id === reviewId
-            ? {
-                ...r,
-                comments: [...r.comments, comment],
-                updatedAt: comment.createdAt
-              }
+            ? { ...r, comments: [...r.comments, comment], updatedAt: comment.createdAt }
             : r
         )
       );
@@ -179,6 +303,8 @@ export function useAppState(): AppState {
   );
 
   const setReviewStatus = useCallback((reviewId: ID, status: ReviewStatus) => {
+    // TODO(API): map UI status -> evidence review decision and POST to
+    // /api/v1/evidence/:id/reviews when reviews are bound to evidence rows.
     setReviews((prev) =>
       prev.map((r) =>
         r.id === reviewId ? { ...r, status, updatedAt: new Date().toISOString() } : r
@@ -186,14 +312,26 @@ export function useAppState(): AppState {
     );
   }, []);
 
-  return useMemo(
+  const refreshAll = useCallback(async () => {
+    if (useMocks) return;
+    await Promise.all([
+      orgsRes.reload(),
+      farmSitesRes.reload(),
+      plotsRes.reload(),
+      cropCyclesRes.reload(),
+      evidenceRes.reload()
+    ]);
+  }, [useMocks, orgsRes, farmSitesRes, plotsRes, cropCyclesRes, evidenceRes]);
+
+  return useMemo<AppState>(
     () => ({
+      useMocks,
       organizationId,
       farmId,
       plotId,
-      setOrganizationId: setOrgAndCascade,
-      setFarmId: setFarmAndCascade,
-      setPlotId: setPlotIdRaw,
+      setOrganizationId,
+      setFarmId,
+      setPlotId,
       screen,
       setScreen,
       organizations,
@@ -202,6 +340,24 @@ export function useAppState(): AppState {
       gapItems,
       evidence,
       reviews,
+      status: {
+        organizations: useMocks
+          ? EMPTY_STATUS
+          : statusFromError(orgsRes.isLoading, orgsRes.error),
+        farms: useMocks
+          ? EMPTY_STATUS
+          : statusFromError(farmSitesRes.isLoading, farmSitesRes.error),
+        plots: useMocks
+          ? EMPTY_STATUS
+          : statusFromError(plotsRes.isLoading, plotsRes.error),
+        evidence: useMocks
+          ? EMPTY_STATUS
+          : statusFromError(evidenceRes.isLoading, evidenceRes.error),
+        // Reviews + GAP items have no API list endpoint yet; surface as not loading.
+        reviews: EMPTY_STATUS,
+        gapItems: EMPTY_STATUS
+      },
+      refreshAll,
       updateGapStatus,
       addEvidence,
       retryEvidence,
@@ -209,15 +365,29 @@ export function useAppState(): AppState {
       setReviewStatus
     }),
     [
+      useMocks,
       organizationId,
       farmId,
       plotId,
+      setOrganizationId,
+      setFarmId,
+      setPlotId,
       screen,
+      organizations,
+      farms,
+      plots,
       gapItems,
       evidence,
       reviews,
-      setOrgAndCascade,
-      setFarmAndCascade,
+      orgsRes.isLoading,
+      orgsRes.error,
+      farmSitesRes.isLoading,
+      farmSitesRes.error,
+      plotsRes.isLoading,
+      plotsRes.error,
+      evidenceRes.isLoading,
+      evidenceRes.error,
+      refreshAll,
       updateGapStatus,
       addEvidence,
       retryEvidence,
