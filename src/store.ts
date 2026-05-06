@@ -404,7 +404,7 @@ export function useAppState({
       const gapItem = gapItems.find((item) => item.id === input.gapItemId);
       if (!gapItem) {
         throw new ApiError(
-          "The selected GAP item is no longer available. Refresh the page and try again.",
+          "The selected GAP item is no longer available. Refresh the page and try again after OME-94 is merged.",
           404,
           "gap_record_not_found"
         );
