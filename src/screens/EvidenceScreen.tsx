@@ -21,8 +21,11 @@ export function EvidenceScreen({ state }: Props) {
   const [filterKind, setFilterKind] = useState<EvidenceKind | "all">("all");
 
   const plotEvidence = useMemo(
-    () => state.evidence.filter((e) => e.plotId === state.plotId),
-    [state.evidence, state.plotId]
+    () =>
+      state.evidence.filter(
+        (e) => e.plotId === state.plotId || (!state.useMocks && e.plotId === "")
+      ),
+    [state.evidence, state.plotId, state.useMocks]
   );
 
   const visible =
@@ -60,6 +63,20 @@ export function EvidenceScreen({ state }: Props) {
 
       <section className="panel">
         <h3>Upload new evidence</h3>
+        {!state.useMocks && state.dataSources.evidence.note ? (
+          <div className="screen-banner screen-banner-warning">
+            <strong>Live list with temporary fallback.</strong>
+            <p>{state.dataSources.evidence.note}</p>
+          </div>
+        ) : null}
+
+        {state.status.evidence.error ? (
+          <div className="screen-banner screen-banner-error" role="alert">
+            <strong>Could not load evidence from SmartFarm API.</strong>
+            <p>{state.status.evidence.error.message}</p>
+          </div>
+        ) : null}
+
         <div className="form-row">
           <label>
             <span className="label">Linked GAP item</span>
@@ -123,6 +140,7 @@ export function EvidenceScreen({ state }: Props) {
       <section className="panel">
         <div className="row-between">
           <h3>Plot evidence library</h3>
+          {state.status.evidence.isLoading ? <span className="micro muted">Refreshing...</span> : null}
           <div className="filter-group" role="tablist">
             {(["all", "image", "video", "document"] as const).map((k) => (
               <button
@@ -137,7 +155,9 @@ export function EvidenceScreen({ state }: Props) {
           </div>
         </div>
 
-        {visible.length === 0 ? (
+        {state.status.evidence.isLoading && visible.length === 0 ? (
+          <div className="empty">Loading evidence from SmartFarm API...</div>
+        ) : visible.length === 0 ? (
           <div className="empty">No evidence yet. Drop a file above to get started.</div>
         ) : (
           <ul className="evidence-list">

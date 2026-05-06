@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { adaptEvidence, adaptFarmSite, adaptOrganization, adaptPlot } from "./api/adapters";
+import {
+  adaptEvidence,
+  adaptFarmSite,
+  adaptOrganization,
+  adaptPlot,
+  adaptReviewQueueItem
+} from "./api/adapters";
 import { ApiError } from "./api/client";
 import { apiConfig } from "./api/config";
 import { SmartFarmApi } from "./api/endpoints";
@@ -33,6 +39,11 @@ export interface AsyncStatus {
   error?: { code?: string; message: string };
 }
 
+export interface DataSourceState {
+  mode: "mock" | "api" | "hybrid";
+  note?: string;
+}
+
 export interface AppState {
   // mode
   useMocks: boolean;
@@ -62,9 +73,15 @@ export interface AppState {
     organizations: AsyncStatus;
     farms: AsyncStatus;
     plots: AsyncStatus;
+    cropCycles: AsyncStatus;
     evidence: AsyncStatus;
     reviews: AsyncStatus;
     gapItems: AsyncStatus;
+  };
+  dataSources: {
+    gapItems: DataSourceState;
+    evidence: DataSourceState;
+    reviews: DataSourceState;
   };
   refreshAll: () => Promise<void>;
 
@@ -126,6 +143,11 @@ export function useAppState(): AppState {
     [useMocks],
     { enabled: !useMocks }
   );
+  const reviewQueueRes = useResource(
+    () => SmartFarmApi.reviewQueue.list(),
+    [useMocks],
+    { enabled: !useMocks }
+  );
 
   // ---------- Adapt to UI types (or use mocks) ----------
   const organizations: Organization[] = useMemo(() => {
@@ -151,7 +173,7 @@ export function useAppState(): AppState {
 
   // Reviews: API exposes per-evidence reviews + a review queue, but no
   // per-GAP-item review thread with comments yet. Tracked as a follow-up.
-  const [reviews, setReviews] = useState<Review[]>(initialReviews);
+  const [localReviewOverrides, setLocalReviewOverrides] = useState<Review[]>([]);
 
   // Evidence: server-backed list with local optimistic upload state for
   // newly added items (real upload client is its own follow-up issue).
@@ -171,6 +193,42 @@ export function useAppState(): AppState {
     );
     return [...localEvidenceOverrides, ...remote];
   }, [useMocks, evidenceRes.data, localEvidenceOverrides]);
+
+  const reviews: Review[] = useMemo(() => {
+    if (useMocks) {
+      return initialReviews;
+    }
+
+    const cropCycleToPlotId = (cropCycleId: string) =>
+      cropCyclesRes.data?.items.find((cycle) => cycle.id === cropCycleId)?.plot?.id;
+
+    const remote = (reviewQueueRes.data?.items ?? []).map((item) =>
+      adaptReviewQueueItem(item, { cropCycleToPlotId })
+    );
+
+    if (localReviewOverrides.length === 0) {
+      return remote;
+    }
+
+    const overridesById = new Map(localReviewOverrides.map((review) => [review.id, review]));
+    const merged = remote.map((review) => {
+      const override = overridesById.get(review.id);
+      return override
+        ? {
+            ...review,
+            ...override,
+            comments: override.comments,
+            updatedAt: override.updatedAt
+          }
+        : review;
+    });
+    for (const override of localReviewOverrides) {
+      if (!merged.some((review) => review.id === override.id)) {
+        merged.push(override);
+      }
+    }
+    return merged;
+  }, [useMocks, cropCyclesRes.data, reviewQueueRes.data, localReviewOverrides]);
 
   // ---------- Context selection (default to first available) ----------
   const [organizationId, setOrganizationIdState] = useState<ID>("");
@@ -291,26 +349,35 @@ export function useAppState(): AppState {
         body,
         createdAt: new Date().toISOString()
       };
-      setReviews((prev) =>
-        prev.map((r) =>
-          r.id === reviewId
-            ? { ...r, comments: [...r.comments, comment], updatedAt: comment.createdAt }
-            : r
-        )
-      );
+      setLocalReviewOverrides((prev) => {
+        const existing =
+          prev.find((review) => review.id === reviewId) ??
+          reviews.find((review) => review.id === reviewId);
+        if (!existing) return prev;
+        const nextReview: Review = {
+          ...existing,
+          comments: [...existing.comments, comment],
+          updatedAt: comment.createdAt
+        };
+        return [...prev.filter((review) => review.id !== reviewId), nextReview];
+      });
     },
-    []
+    [reviews]
   );
 
   const setReviewStatus = useCallback((reviewId: ID, status: ReviewStatus) => {
     // TODO(API): map UI status -> evidence review decision and POST to
     // /api/v1/evidence/:id/reviews when reviews are bound to evidence rows.
-    setReviews((prev) =>
-      prev.map((r) =>
-        r.id === reviewId ? { ...r, status, updatedAt: new Date().toISOString() } : r
-      )
-    );
-  }, []);
+    const updatedAt = new Date().toISOString();
+    setLocalReviewOverrides((prev) => {
+      const existing =
+        prev.find((review) => review.id === reviewId) ??
+        reviews.find((review) => review.id === reviewId);
+      if (!existing) return prev;
+      const nextReview: Review = { ...existing, status, updatedAt };
+      return [...prev.filter((review) => review.id !== reviewId), nextReview];
+    });
+  }, [reviews]);
 
   const refreshAll = useCallback(async () => {
     if (useMocks) return;
@@ -319,9 +386,34 @@ export function useAppState(): AppState {
       farmSitesRes.reload(),
       plotsRes.reload(),
       cropCyclesRes.reload(),
-      evidenceRes.reload()
+      evidenceRes.reload(),
+      reviewQueueRes.reload()
     ]);
-  }, [useMocks, orgsRes, farmSitesRes, plotsRes, cropCyclesRes, evidenceRes]);
+  }, [useMocks, orgsRes, farmSitesRes, plotsRes, cropCyclesRes, evidenceRes, reviewQueueRes]);
+
+  const dataSources = useMemo<AppState["dataSources"]>(() => {
+    if (useMocks) {
+      return {
+        gapItems: { mode: "mock", note: "Checklist uses local mock data." },
+        evidence: { mode: "mock", note: "Evidence library uses local mock data." },
+        reviews: { mode: "mock", note: "Review submissions use local mock data." }
+      };
+    }
+    return {
+      gapItems: {
+        mode: "mock",
+        note: "Checklist remains mock-backed until SmartFarm exposes GAP record list and update endpoints."
+      },
+      evidence: {
+        mode: "hybrid",
+        note: "Evidence rows come from SmartFarm API, but plot binding is temporarily organization-wide until gap-record mapping is exposed. New uploads still use a local placeholder until the real document upload flow lands."
+      },
+      reviews: {
+        mode: "hybrid",
+        note: "Submission rows come from SmartFarm review queue; comment threads and manual decisions remain local until review-thread endpoints exist."
+      }
+    };
+  }, [useMocks]);
 
   return useMemo<AppState>(
     () => ({
@@ -350,13 +442,19 @@ export function useAppState(): AppState {
         plots: useMocks
           ? EMPTY_STATUS
           : statusFromError(plotsRes.isLoading, plotsRes.error),
+        cropCycles: useMocks
+          ? EMPTY_STATUS
+          : statusFromError(cropCyclesRes.isLoading, cropCyclesRes.error),
         evidence: useMocks
           ? EMPTY_STATUS
           : statusFromError(evidenceRes.isLoading, evidenceRes.error),
-        // Reviews + GAP items have no API list endpoint yet; surface as not loading.
-        reviews: EMPTY_STATUS,
+        reviews: useMocks
+          ? EMPTY_STATUS
+          : statusFromError(reviewQueueRes.isLoading, reviewQueueRes.error),
+        // GAP items have no API list endpoint yet; surface as not loading.
         gapItems: EMPTY_STATUS
       },
+      dataSources,
       refreshAll,
       updateGapStatus,
       addEvidence,
@@ -385,8 +483,13 @@ export function useAppState(): AppState {
       farmSitesRes.error,
       plotsRes.isLoading,
       plotsRes.error,
+      cropCyclesRes.isLoading,
+      cropCyclesRes.error,
       evidenceRes.isLoading,
       evidenceRes.error,
+      reviewQueueRes.isLoading,
+      reviewQueueRes.error,
+      dataSources,
       refreshAll,
       updateGapStatus,
       addEvidence,
