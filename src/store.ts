@@ -61,26 +61,31 @@ interface EvidenceUploadInput {
 export interface AppState {
   useMocks: boolean;
   authMode: AuthenticatedSession["mode"];
+
   organizationId: ID;
   farmId: ID;
   plotId: ID;
   setOrganizationId: (id: ID) => void;
   setFarmId: (id: ID) => void;
   setPlotId: (id: ID) => void;
+
   screen: ScreenKey;
   setScreen: (s: ScreenKey) => void;
+
   viewer: {
     name: string;
     email: string;
     role: WorkspaceRole;
   };
   signOut: () => Promise<void>;
+
   organizations: Organization[];
   farms: Farm[];
   plots: Plot[];
   gapItems: GapChecklistItem[];
   evidence: Evidence[];
   reviews: Review[];
+
   status: {
     organizations: AsyncStatus;
     farms: AsyncStatus;
@@ -95,6 +100,7 @@ export interface AppState {
     evidence: DataSourceState;
     reviews: DataSourceState;
   };
+
   refreshAll: () => Promise<void>;
   updateGapStatus: (gapItemId: ID, status: GapItemStatus) => void;
   addEvidence: (input: EvidenceUploadInput) => Evidence;
@@ -224,11 +230,14 @@ export function useAppState({
     if (useMocks) {
       return [...localEvidenceOverrides, ...initialEvidence];
     }
+
     const gapRecordToPlotId = (gapRecordId: string) =>
       gapItems.find((item) => item.id === gapRecordId)?.plotId;
+
     const remote = (evidenceRes.data?.items ?? []).map((item) =>
       adaptEvidence(item, { gapRecordToPlotId })
     );
+
     return [
       ...localEvidenceOverrides,
       ...remote.filter((item) => !localEvidenceOverrides.some((local) => local.id === item.id))
@@ -306,8 +315,7 @@ export function useAppState({
   const activeOrganization = organizations.find((organization) => organization.id === organizationId);
   const viewerRole =
     activeOrganization?.role ??
-    session.memberships.find((membership) => membership.organizationId === organizationId)
-      ?.workspaceRole ??
+    session.memberships.find((membership) => membership.organizationId === organizationId)?.workspaceRole ??
     session.memberships.find(
       (membership) => membership.organizationId === session.activeOrganizationId
     )?.workspaceRole ??
@@ -434,10 +442,7 @@ export function useAppState({
       markGapItemHasEvidence(input.gapItemId, evidenceId);
       pendingUploadsRef.current.delete(evidenceId);
 
-      const refreshResults = await Promise.allSettled([
-        evidenceRes.reload(),
-        gapRecordsRes.reload()
-      ]);
+      const refreshResults = await Promise.allSettled([evidenceRes.reload(), gapRecordsRes.reload()]);
       if (refreshResults.every((result) => result.status === "fulfilled")) {
         setLocalEvidenceOverrides((prev) => prev.filter((item) => item.id !== evidenceId));
       } else {
@@ -566,6 +571,7 @@ export function useAppState({
         body,
         createdAt: new Date().toISOString()
       };
+
       setLocalReviewOverrides((prev) => {
         const existing =
           prev.find((review) => review.id === reviewId) ??
@@ -617,6 +623,7 @@ export function useAppState({
         reviews: { mode: "mock", note: "Review submissions use local mock data." }
       };
     }
+
     return {
       gapItems: {
         mode: "api",
