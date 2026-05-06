@@ -189,6 +189,19 @@ export interface ReviewQueueListDto {
   items: ReviewQueueItemDto[];
 }
 
+export type ApiReviewThreadStatus =
+  | "awaiting_review"
+  | "changes_requested"
+  | "approved"
+  | "rejected";
+export type ApiGapRecordCurrentReviewState =
+  | "unreviewed"
+  | "approved"
+  | "needs_more_evidence"
+  | "blocking";
+export type ApiGapRecordCurrentReadinessStatus = "ready" | "partial" | "not_ready";
+export type ApiRecommendedCorrectionAction = "attach_evidence" | "submit_record_correction";
+
 export type ApiGapRecordStatus =
   | "draft"
   | "submitted"
@@ -204,6 +217,10 @@ export interface GapRecordDto {
   title: string;
   notes: string | null;
   status: ApiGapRecordStatus;
+  reviewThreadStatus: ApiReviewThreadStatus;
+  currentReviewState: ApiGapRecordCurrentReviewState;
+  currentReadinessStatus: ApiGapRecordCurrentReadinessStatus;
+  recommendedCorrectionAction: ApiRecommendedCorrectionAction | null;
   recordedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -224,6 +241,74 @@ export interface GapRecordDto {
   } | null;
   evidenceCount: number;
   advisoryCommentCount: number;
+}
+
+export type ReviewThreadCommentSource = "thread_comment" | "evidence_review" | "record_review";
+export type ReviewThreadCommentDecision =
+  | ApiEvidenceReviewDecision
+  | "approved"
+  | "needs_more_evidence"
+  | "blocking";
+
+export interface ReviewThreadCommentDto {
+  id: string;
+  reviewId: string;
+  source: ReviewThreadCommentSource;
+  body: string;
+  createdAt: string;
+  authorUserId: string;
+  authorName: string;
+  authorRole: OrganizationRole | null;
+  decision?: ReviewThreadCommentDecision;
+  evidenceId?: string;
+  evidenceFileName?: string;
+  evidenceKind?: ApiEvidenceKind;
+  evidenceSupersededAt?: string | null;
+  evidenceSupersededByEvidenceId?: string | null;
+  gapRecordVersionId?: string;
+  gapRecordVersionNumber?: number;
+}
+
+export interface ReviewThreadDto {
+  id: string;
+  gapRecordId: string;
+  organizationId: string;
+  title: string;
+  controlPointRef: string | null;
+  controlPointTitle: string | null;
+  status: ApiReviewThreadStatus;
+  submittedAt: string;
+  updatedAt: string;
+  currentReviewState: ApiGapRecordCurrentReviewState;
+  currentReadinessStatus: ApiGapRecordCurrentReadinessStatus;
+  recommendedCorrectionAction: ApiRecommendedCorrectionAction | null;
+  currentVersion: {
+    id: string;
+    versionNumber: number;
+    isCurrent: boolean;
+    titleSnapshot: string;
+    notesSnapshot: string | null;
+    recordedAt: string | null;
+    createdAt: string;
+    latestReview: {
+      id: string;
+      decision: ReviewThreadCommentDecision;
+      comment: string;
+      reviewerUserId: string;
+      createdAt: string;
+    } | null;
+  } | null;
+  evidenceSummary: {
+    total: number;
+    pendingReview: number;
+    verified: number;
+    needsRework: number;
+  };
+  comments: ReviewThreadCommentDto[];
+}
+
+export interface ReviewThreadItemResponse {
+  item: ReviewThreadDto;
 }
 
 export interface GapRecordsListDto {

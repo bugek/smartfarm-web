@@ -4,9 +4,9 @@ import {
   adaptEvidence,
   adaptFarmSite,
   adaptGapRecord,
+  adaptGapRecordReview,
   adaptOrganization,
-  adaptPlot,
-  adaptReviewQueueItem
+  adaptPlot
 } from "./api/adapters";
 import { ApiError } from "./api/client";
 import { apiConfig } from "./api/config";
@@ -96,6 +96,7 @@ export interface AppState {
     reviews: DataSourceState;
   };
   refreshAll: () => Promise<void>;
+  refreshReviews: () => Promise<void>;
   updateGapStatus: (gapItemId: ID, status: GapItemStatus) => void;
   addEvidence: (input: EvidenceUploadInput) => Evidence;
   retryEvidence: (evidenceId: ID) => void;
@@ -179,11 +180,6 @@ export function useAppState({
     [useMocks],
     { enabled: !useMocks }
   );
-  const reviewQueueRes = useResource(
-    () => SmartFarmApi.reviewQueue.list(),
-    [useMocks],
-    { enabled: !useMocks }
-  );
 
   const membershipOrgIds = useMemo(
     () => new Set(session.memberships.map((membership) => membership.organizationId)),
@@ -239,16 +235,11 @@ export function useAppState({
     if (useMocks) {
       return initialReviews;
     }
-
-    const cropCycleToPlotId = (cropCycleId: string) =>
-      cropCyclesRes.data?.items.find((cycle) => cycle.id === cropCycleId)?.plot?.id;
-
-    const remote = (reviewQueueRes.data?.items ?? []).map((item) =>
-      adaptReviewQueueItem(item, { cropCycleToPlotId })
-    );
-
+    const remote = (gapRecordsRes.data?.items ?? [])
+      .filter((item) => item.evidenceCount > 0 || item.advisoryCommentCount > 0)
+      .map(adaptGapRecordReview);
     return mergeById(remote, localReviewOverrides);
-  }, [useMocks, cropCyclesRes.data, reviewQueueRes.data, localReviewOverrides]);
+  }, [useMocks, gapRecordsRes.data, localReviewOverrides]);
 
   const [organizationId, setOrganizationIdState] = useState<ID>("");
   const [farmId, setFarmIdState] = useState<ID>("");
@@ -564,7 +555,8 @@ export function useAppState({
         authorName: viewerName,
         authorRole: viewerRole,
         body,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        source: "thread_comment"
       };
       setLocalReviewOverrides((prev) => {
         const existing =
@@ -574,6 +566,7 @@ export function useAppState({
         const nextReview: Review = {
           ...existing,
           comments: [...existing.comments, comment],
+          commentCount: (existing.commentCount ?? existing.comments.length) + 1,
           updatedAt: comment.createdAt
         };
         return upsertById(prev, nextReview);
@@ -604,10 +597,14 @@ export function useAppState({
       plotsRes.reload(),
       cropCyclesRes.reload(),
       gapRecordsRes.reload(),
-      evidenceRes.reload(),
-      reviewQueueRes.reload()
+      evidenceRes.reload()
     ]);
-  }, [useMocks, orgsRes, farmSitesRes, plotsRes, cropCyclesRes, gapRecordsRes, evidenceRes, reviewQueueRes]);
+  }, [useMocks, orgsRes, farmSitesRes, plotsRes, cropCyclesRes, gapRecordsRes, evidenceRes]);
+
+  const refreshReviews = useCallback(async () => {
+    if (useMocks) return;
+    await gapRecordsRes.reload();
+  }, [useMocks, gapRecordsRes]);
 
   const dataSources = useMemo<AppState["dataSources"]>(() => {
     if (useMocks) {
@@ -627,7 +624,7 @@ export function useAppState({
       },
       reviews: {
         mode: "hybrid",
-        note: "Submission rows come from SmartFarm review queue; comment threads and manual decisions remain local until review-thread endpoints exist."
+        note: "Review summaries now come from GAP records, and comments or decision changes use the live review-thread endpoints."
       }
     };
   }, [useMocks]);
@@ -662,11 +659,12 @@ export function useAppState({
         plots: useMocks ? EMPTY_STATUS : statusFromError(plotsRes.isLoading, plotsRes.error),
         cropCycles: useMocks ? EMPTY_STATUS : statusFromError(cropCyclesRes.isLoading, cropCyclesRes.error),
         evidence: useMocks ? EMPTY_STATUS : statusFromError(evidenceRes.isLoading, evidenceRes.error),
-        reviews: useMocks ? EMPTY_STATUS : statusFromError(reviewQueueRes.isLoading, reviewQueueRes.error),
+        reviews: useMocks ? EMPTY_STATUS : statusFromError(gapRecordsRes.isLoading, gapRecordsRes.error),
         gapItems: useMocks ? EMPTY_STATUS : statusFromError(gapRecordsRes.isLoading, gapRecordsRes.error)
       },
       dataSources,
       refreshAll,
+      refreshReviews,
       updateGapStatus,
       addEvidence,
       retryEvidence,
@@ -703,12 +701,11 @@ export function useAppState({
       cropCyclesRes.error,
       evidenceRes.isLoading,
       evidenceRes.error,
-      reviewQueueRes.isLoading,
-      reviewQueueRes.error,
       gapRecordsRes.isLoading,
       gapRecordsRes.error,
       dataSources,
       refreshAll,
+      refreshReviews,
       updateGapStatus,
       addEvidence,
       retryEvidence,

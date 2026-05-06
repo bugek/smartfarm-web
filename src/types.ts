@@ -60,14 +60,35 @@ export interface Evidence {
 }
 
 export type ReviewStatus = "awaiting_review" | "changes_requested" | "approved" | "rejected";
+export type ReviewCommentSource = "thread_comment" | "evidence_review" | "record_review";
+export type ReviewCommentDecision =
+  | "verified"
+  | "needs_rework"
+  | "comment"
+  | "approved"
+  | "needs_more_evidence"
+  | "blocking";
+export type ReviewReadinessStatus = "ready" | "partial" | "not_ready";
+export type ReviewCorrectionAction = "attach_evidence" | "submit_record_correction";
+
+export interface ReviewEvidenceSummary {
+  total: number;
+  pendingReview: number;
+  verified: number;
+  needsRework: number;
+}
 
 export interface ReviewComment {
   id: ID;
   reviewId: ID;
   authorName: string;
-  authorRole: WorkspaceRole;
+  authorRole?: WorkspaceRole;
   body: string;
   createdAt: string;
+  source: ReviewCommentSource;
+  decision?: ReviewCommentDecision;
+  evidenceFileName?: string;
+  gapRecordVersionNumber?: number;
 }
 
 export interface Review {
@@ -79,4 +100,10 @@ export interface Review {
   submittedAt: string;
   updatedAt: string;
   comments: ReviewComment[];
+  commentCount?: number;
+  controlPointRef?: string;
+  currentReviewState?: string;
+  currentReadinessStatus?: ReviewReadinessStatus;
+  recommendedCorrectionAction?: ReviewCorrectionAction | null;
+  evidenceSummary?: ReviewEvidenceSummary;
 }

@@ -713,6 +713,38 @@ textarea:focus {
   gap: 8px;
 }
 
+.review-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.review-summary-card {
+  background: var(--slate-100);
+  border: 1px solid var(--slate-200);
+  border-radius: 10px;
+  padding: 12px;
+  display: grid;
+  gap: 4px;
+}
+
+.review-summary-card strong {
+  font-size: 18px;
+  color: var(--slate-700);
+}
+
+.review-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 880px) {
+  .review-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .auth-page {
   min-height: 100vh;
   display: grid;

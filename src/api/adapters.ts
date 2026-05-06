@@ -14,6 +14,8 @@ import type {
   OrganizationDto,
   OrganizationRole,
   PlotDto,
+  ReviewThreadCommentDto,
+  ReviewThreadDto,
   ReviewQueueItemDto
 } from "./dto";
 import type {
@@ -24,6 +26,7 @@ import type {
   Organization,
   Plot,
   Review,
+  ReviewComment,
   ReviewStatus,
   WorkspaceRole
 } from "../types";
@@ -205,5 +208,64 @@ export function adaptReviewQueueItem(
     submittedAt: item.submittedAt,
     updatedAt: item.submittedAt,
     comments: []
+  };
+}
+
+function adaptCommentRole(role: OrganizationRole | null): WorkspaceRole | undefined {
+  return role ? ROLE_MAP[role] : undefined;
+}
+
+export function adaptGapRecordReview(dto: GapRecordDto): Review {
+  return {
+    id: dto.id,
+    plotId: dto.cropCycle?.plot?.id ?? "",
+    gapItemId: dto.id,
+    status: dto.reviewThreadStatus,
+    assignedAdvisorName: "SmartFarm review thread",
+    submittedAt: dto.recordedAt ?? dto.updatedAt,
+    updatedAt: dto.updatedAt,
+    comments: [],
+    commentCount: dto.advisoryCommentCount,
+    controlPointRef: dto.controlPointCatalog?.code ?? dto.controlPointRef ?? undefined,
+    currentReviewState: dto.currentReviewState,
+    currentReadinessStatus: dto.currentReadinessStatus,
+    recommendedCorrectionAction: dto.recommendedCorrectionAction
+  };
+}
+
+export function adaptReviewThreadComment(dto: ReviewThreadCommentDto): ReviewComment {
+  return {
+    id: dto.id,
+    reviewId: dto.reviewId,
+    authorName: dto.authorName,
+    authorRole: adaptCommentRole(dto.authorRole),
+    body: dto.body,
+    createdAt: dto.createdAt,
+    source: dto.source,
+    decision: dto.decision,
+    evidenceFileName: dto.evidenceFileName,
+    gapRecordVersionNumber: dto.gapRecordVersionNumber
+  };
+}
+
+export function adaptReviewThread(
+  dto: ReviewThreadDto,
+  context: { gapRecordToPlotId: (gapRecordId: string) => string | undefined }
+): Review {
+  return {
+    id: dto.id,
+    plotId: context.gapRecordToPlotId(dto.gapRecordId) ?? "",
+    gapItemId: dto.gapRecordId,
+    status: dto.status,
+    assignedAdvisorName: "SmartFarm review thread",
+    submittedAt: dto.submittedAt,
+    updatedAt: dto.updatedAt,
+    comments: dto.comments.map(adaptReviewThreadComment),
+    commentCount: dto.comments.length,
+    controlPointRef: dto.controlPointRef ?? undefined,
+    currentReviewState: dto.currentReviewState,
+    currentReadinessStatus: dto.currentReadinessStatus,
+    recommendedCorrectionAction: dto.recommendedCorrectionAction,
+    evidenceSummary: dto.evidenceSummary
   };
 }
