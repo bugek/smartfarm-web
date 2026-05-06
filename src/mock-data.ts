@@ -206,7 +206,8 @@ export const reviews: Review[] = [
         authorName: "Dr. Anya Wattana",
         authorRole: "advisor",
         body: "Photo is clear, but I need the dose rate per hectare and a copy of the product label.",
-        createdAt: "2026-05-04T02:11:00Z"
+        createdAt: "2026-05-04T02:11:00Z",
+        source: "thread_comment"
       }
     ]
   },
@@ -235,7 +236,8 @@ export const reviews: Review[] = [
         authorName: "Dr. Anya Wattana",
         authorRole: "advisor",
         body: "Lab report meets GAP 1.1 evidence requirements. Approved.",
-        createdAt: "2026-04-23T01:00:00Z"
+        createdAt: "2026-04-23T01:00:00Z",
+        source: "thread_comment"
       }
     ]
   }

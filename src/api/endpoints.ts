@@ -13,6 +13,7 @@ import type {
   GapRecordsListDto,
   OrganizationsListDto,
   PlotsListDto,
+  ReviewThreadItemResponse,
   ReviewQueueListDto
 } from "./dto";
 
@@ -77,6 +78,25 @@ export const SmartFarmApi = {
   reviewQueue: {
     list: (params: { status?: string; farmSiteId?: string; controlPointRef?: string } = {}) =>
       apiRequest<ReviewQueueListDto>("api/v1/review-queue", { query: params })
+  },
+  reviews: {
+    get: (gapRecordId: string) =>
+      apiRequest<ReviewThreadItemResponse>("api/v1/reviews", {
+        query: { gapRecordId }
+      }),
+    addComment: (reviewId: string, body: { body: string }) =>
+      apiRequest<{ item: { id: string } }>(`api/v1/reviews/${reviewId}/comments`, {
+        method: "POST",
+        body
+      }),
+    update: (
+      reviewId: string,
+      body: { status: "awaiting_review" | "changes_requested" | "approved" | "rejected"; comment?: string }
+    ) =>
+      apiRequest<ReviewThreadItemResponse>(`api/v1/reviews/${reviewId}`, {
+        method: "PATCH",
+        body
+      })
   },
   documents: {
     create: (body: DocumentCreateRequest, signal?: AbortSignal) =>
