@@ -11,7 +11,7 @@ import {
 import { ApiError } from "./api/client";
 import { apiConfig } from "./api/config";
 import { SmartFarmApi } from "./api/endpoints";
-import { uploadDocumentBlob, waitForDocumentReady } from "./api/uploads";
+import { uploadEvidenceWithDocument } from "./api/uploads";
 import { useResource } from "./api/useResource";
 import {
   evidence as initialEvidence,
@@ -104,6 +104,7 @@ export interface AppState {
   refreshAll: () => Promise<void>;
   updateGapStatus: (gapItemId: ID, status: GapItemStatus) => void;
   addEvidence: (input: EvidenceUploadInput) => Evidence;
+  cancelEvidence: (evidenceId: ID) => void;
   retryEvidence: (evidenceId: ID) => void;
   addReviewComment: (reviewId: ID, body: string) => void;
   setReviewStatus: (reviewId: ID, status: ReviewStatus) => void;
@@ -146,6 +147,10 @@ function upsertById<T extends { id: string }>(items: T[], next: T): T[] {
   return [...items.filter((item) => item.id !== next.id), next];
 }
 
+function isAbortError(cause: unknown): boolean {
+  return cause instanceof DOMException && cause.name === "AbortError";
+}
+
 export function useAppState({
   session,
   signOut,
@@ -154,6 +159,8 @@ export function useAppState({
 }: UseAppStateOptions): AppState {
   const useMocks = apiConfig.useMocks;
   const pendingUploadsRef = useRef(new Map<ID, EvidenceUploadInput>());
+  const uploadControllersRef = useRef(new Map<ID, AbortController>());
+  const mockUploadTimeoutsRef = useRef(new Map<ID, number>());
 
   const orgsRes = useResource(
     () => SmartFarmApi.organizations.list(),
@@ -377,7 +384,8 @@ export function useAppState({
 
   const runMockEvidenceUpload = useCallback(
     (evidenceId: ID, input: EvidenceUploadInput) => {
-      window.setTimeout(() => {
+      const timeoutId = window.setTimeout(() => {
+        mockUploadTimeoutsRef.current.delete(evidenceId);
         setLocalEvidenceState(evidenceId, (item) => ({
           ...item,
           state: "uploaded",
@@ -387,12 +395,18 @@ export function useAppState({
           markGapItemHasEvidence(input.gapItemId, evidenceId);
         }
       }, 1200);
+      mockUploadTimeoutsRef.current.set(evidenceId, timeoutId);
     },
     [markGapItemHasEvidence, setLocalEvidenceState]
   );
 
   const runLiveEvidenceUpload = useCallback(
-    async (evidenceId: ID, input: EvidenceUploadInput, capturedAt: string) => {
+    async (
+      evidenceId: ID,
+      input: EvidenceUploadInput,
+      capturedAt: string,
+      signal: AbortSignal
+    ) => {
       if (!input.gapItemId) {
         throw new ApiError(
           "Select a GAP item before uploading in live mode. The API requires a real gapRecordId for each evidence submission.",
@@ -410,29 +424,29 @@ export function useAppState({
         );
       }
 
-      const contentType = input.file.type.trim() || undefined;
-      const createdDocument = await SmartFarmApi.documents.create({
-        fileName: input.filename,
-        kind: input.kind,
-        contentType,
-        declaredSize: input.sizeBytes,
-        metadata: {
-          source: "smartfarm-web",
-          plotId: input.plotId,
-          gapRecordId: input.gapItemId
-        }
-      });
-
-      await uploadDocumentBlob(createdDocument.upload.url, input.file, contentType);
-      await SmartFarmApi.documents.finalize(createdDocument.item.id);
-      await waitForDocumentReady(createdDocument.item.id);
-      await SmartFarmApi.evidence.submit({
-        gapRecordId: input.gapItemId,
-        controlPointRef: gapItem.code,
-        documentId: createdDocument.item.id,
-        noteText: input.note,
-        capturedAt
-      });
+      await uploadEvidenceWithDocument(
+        {
+          file: input.file,
+          document: {
+            fileName: input.filename,
+            kind: input.kind,
+            contentType: input.file.type.trim() || undefined,
+            declaredSize: input.sizeBytes,
+            metadata: {
+              source: "smartfarm-web",
+              plotId: input.plotId,
+              gapRecordId: input.gapItemId
+            }
+          },
+          evidence: {
+            gapRecordId: input.gapItemId,
+            controlPointRef: gapItem.code,
+            noteText: input.note,
+            capturedAt
+          }
+        },
+        { signal }
+      );
 
       setLocalEvidenceState(evidenceId, (item) => ({
         ...item,
@@ -453,6 +467,39 @@ export function useAppState({
       }
     },
     [evidenceRes, gapItems, gapRecordsRes, markGapItemHasEvidence, setLocalEvidenceState]
+  );
+
+  const startEvidenceUpload = useCallback(
+    (evidenceId: ID, input: EvidenceUploadInput, capturedAt: string) => {
+      const run = async () => {
+        try {
+          if (useMocks) {
+            runMockEvidenceUpload(evidenceId, input);
+            return;
+          }
+
+          const controller = new AbortController();
+          uploadControllersRef.current.set(evidenceId, controller);
+          await runLiveEvidenceUpload(evidenceId, input, capturedAt, controller.signal);
+        } catch (cause) {
+          const message = isAbortError(cause)
+            ? "Upload cancelled."
+            : cause instanceof Error
+              ? cause.message
+              : "Upload failed.";
+          setLocalEvidenceState(evidenceId, (item) => ({
+            ...item,
+            state: "failed",
+            errorMessage: message
+          }));
+        } finally {
+          uploadControllersRef.current.delete(evidenceId);
+        }
+      };
+
+      void run();
+    },
+    [runLiveEvidenceUpload, runMockEvidenceUpload, setLocalEvidenceState, useMocks]
   );
 
   const updateGapStatus = useCallback(
@@ -493,28 +540,32 @@ export function useAppState({
 
       pendingUploadsRef.current.set(id, input);
       setLocalEvidenceOverrides((prev) => [created, ...prev]);
-
-      const run = async () => {
-        try {
-          if (useMocks) {
-            runMockEvidenceUpload(id, input);
-            return;
-          }
-          await runLiveEvidenceUpload(id, input, created.capturedAt);
-        } catch (cause) {
-          const message = cause instanceof Error ? cause.message : "Upload failed.";
-          setLocalEvidenceState(id, (item) => ({
-            ...item,
-            state: "failed",
-            errorMessage: message
-          }));
-        }
-      };
-
-      void run();
+      startEvidenceUpload(id, input, created.capturedAt);
       return created;
     },
-    [runLiveEvidenceUpload, runMockEvidenceUpload, setLocalEvidenceState, useMocks]
+    [startEvidenceUpload]
+  );
+
+  const cancelEvidence = useCallback(
+    (evidenceId: ID) => {
+      const controller = uploadControllersRef.current.get(evidenceId);
+      if (controller) {
+        controller.abort();
+        return;
+      }
+
+      const timeoutId = mockUploadTimeoutsRef.current.get(evidenceId);
+      if (timeoutId != null) {
+        window.clearTimeout(timeoutId);
+        mockUploadTimeoutsRef.current.delete(evidenceId);
+        setLocalEvidenceState(evidenceId, (item) => ({
+          ...item,
+          state: "failed",
+          errorMessage: "Upload cancelled."
+        }));
+      }
+    },
+    [setLocalEvidenceState]
   );
 
   const retryEvidence = useCallback(
@@ -538,27 +589,9 @@ export function useAppState({
         state: "uploading",
         errorMessage: undefined
       }));
-
-      const run = async () => {
-        try {
-          if (useMocks) {
-            runMockEvidenceUpload(evidenceId, input);
-            return;
-          }
-          await runLiveEvidenceUpload(evidenceId, input, capturedAt);
-        } catch (cause) {
-          const message = cause instanceof Error ? cause.message : "Upload failed.";
-          setLocalEvidenceState(evidenceId, (item) => ({
-            ...item,
-            state: "failed",
-            errorMessage: message
-          }));
-        }
-      };
-
-      void run();
+      startEvidenceUpload(evidenceId, input, capturedAt);
     },
-    [localEvidenceOverrides, runLiveEvidenceUpload, runMockEvidenceUpload, setLocalEvidenceState, useMocks]
+    [localEvidenceOverrides, setLocalEvidenceState, startEvidenceUpload]
   );
 
   const addReviewComment = useCallback(
@@ -676,6 +709,7 @@ export function useAppState({
       refreshAll,
       updateGapStatus,
       addEvidence,
+      cancelEvidence,
       retryEvidence,
       addReviewComment,
       setReviewStatus
@@ -718,6 +752,7 @@ export function useAppState({
       refreshAll,
       updateGapStatus,
       addEvidence,
+      cancelEvidence,
       retryEvidence,
       addReviewComment,
       setReviewStatus

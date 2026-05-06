@@ -202,6 +202,15 @@ export function EvidenceScreen({ state }: Props) {
                     {item.errorMessage ? <p className="note">{item.errorMessage}</p> : null}
                   </div>
                   <div className="evidence-actions">
+                    {item.state === "uploading" ? (
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => state.cancelEvidence(item.id)}
+                      >
+                        Cancel upload
+                      </button>
+                    ) : null}
                     {item.state === "failed" ? (
                       <button
                         type="button"
