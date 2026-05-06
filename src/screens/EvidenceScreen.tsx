@@ -18,19 +18,22 @@ export function EvidenceScreen({ state }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [note, setNote] = useState<string>("");
   const [filterKind, setFilterKind] = useState<EvidenceKind | "all">("all");
+  const liveUploadNeedsLinkedGapItem = !state.useMocks;
 
   const plotEvidence = useMemo(
     () =>
       state.evidence.filter(
-        (e) => e.plotId === state.plotId || (!state.useMocks && e.plotId === "")
+        (item) => item.plotId === state.plotId || (!state.useMocks && item.plotId === "")
       ),
     [state.evidence, state.plotId, state.useMocks]
   );
 
   const visible =
-    filterKind === "all" ? plotEvidence : plotEvidence.filter((e) => e.kind === filterKind);
+    filterKind === "all" ? plotEvidence : plotEvidence.filter((item) => item.kind === filterKind);
 
-  const plotGapItems = state.gapItems.filter((i) => i.plotId === state.plotId);
+  const plotGapItems = state.gapItems.filter((item) => item.plotId === state.plotId);
+  const uploadDisabled =
+    liveUploadNeedsLinkedGapItem && (!state.selectedGapItemId || plotGapItems.length === 0);
 
   const handleFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -41,7 +44,8 @@ export function EvidenceScreen({ state }: Props) {
         kind: inferKind(file.name),
         filename: file.name,
         sizeBytes: file.size,
-        note: note || undefined
+        note: note || undefined,
+        file
       });
     });
     setNote("");
@@ -62,10 +66,10 @@ export function EvidenceScreen({ state }: Props) {
 
       <section className="panel">
         <h3>Upload new evidence</h3>
-        {!state.useMocks && state.dataSources.evidence.note ? (
+        {!state.useMocks && state.dataSources.gapItems.note ? (
           <div className="screen-banner screen-banner-warning">
-            <strong>Live list with temporary fallback.</strong>
-            <p>{state.dataSources.evidence.note}</p>
+            <strong>Live checklist is now API-backed.</strong>
+            <p>{state.dataSources.gapItems.note}</p>
           </div>
         ) : null}
 
@@ -76,6 +80,16 @@ export function EvidenceScreen({ state }: Props) {
           </div>
         ) : null}
 
+        {liveUploadNeedsLinkedGapItem ? (
+          <div className="screen-banner screen-banner-warning">
+            <strong>Live uploads require a linked GAP item.</strong>
+            <p>
+              The API expects a real gap record for each evidence submission, so general
+              unlinked uploads stay disabled in live mode.
+            </p>
+          </div>
+        ) : null}
+
         <div className="form-row">
           <label>
             <span className="label">Linked GAP item</span>
@@ -83,10 +97,14 @@ export function EvidenceScreen({ state }: Props) {
               value={state.selectedGapItemId}
               onChange={(e) => state.setSelectedGapItemId(e.target.value)}
             >
-              <option value="">Unlinked (general plot evidence)</option>
+              <option value="">
+                {state.useMocks
+                  ? "Unlinked (general plot evidence)"
+                  : "Select a GAP item for this upload"}
+              </option>
               {plotGapItems.map((item) => (
                 <option key={item.id} value={item.id}>
-                  {item.code} · {item.title}
+                  {item.code} - {item.title}
                 </option>
               ))}
             </select>
@@ -96,7 +114,7 @@ export function EvidenceScreen({ state }: Props) {
             <input
               type="text"
               value={note}
-              onChange={(e) => setNote(e.target.value)}
+              onChange={(event) => setNote(event.target.value)}
               placeholder="e.g. Sprayer mix tank label, captured in field"
             />
           </label>
@@ -104,12 +122,14 @@ export function EvidenceScreen({ state }: Props) {
 
         <div
           className="dropzone"
-          onDragOver={(e) => {
-            e.preventDefault();
+          onDragOver={(event) => {
+            if (uploadDisabled) return;
+            event.preventDefault();
           }}
-          onDrop={(e) => {
-            e.preventDefault();
-            handleFiles(e.dataTransfer.files);
+          onDrop={(event) => {
+            if (uploadDisabled) return;
+            event.preventDefault();
+            handleFiles(event.dataTransfer.files);
           }}
         >
           <p>
@@ -118,6 +138,7 @@ export function EvidenceScreen({ state }: Props) {
           <button
             type="button"
             className="btn"
+            disabled={uploadDisabled}
             onClick={() => fileInputRef.current?.click()}
           >
             Choose files
@@ -128,7 +149,7 @@ export function EvidenceScreen({ state }: Props) {
             multiple
             hidden
             accept="image/*,video/*,.pdf,.doc,.docx,.csv,.xlsx,.txt"
-            onChange={(e) => handleFiles(e.target.files)}
+            onChange={(event) => handleFiles(event.target.files)}
           />
           <p className="micro muted">
             Accepts JPG, PNG, MP4, MOV, PDF, DOC, CSV, XLSX. Max 100 MB each.
@@ -141,14 +162,14 @@ export function EvidenceScreen({ state }: Props) {
           <h3>Plot evidence library</h3>
           {state.status.evidence.isLoading ? <span className="micro muted">Refreshing...</span> : null}
           <div className="filter-group" role="tablist">
-            {(["all", "image", "video", "document"] as const).map((k) => (
+            {(["all", "image", "video", "document"] as const).map((kind) => (
               <button
                 type="button"
-                key={k}
-                className={`chip ${filterKind === k ? "chip-active" : ""}`}
-                onClick={() => setFilterKind(k)}
+                key={kind}
+                className={`chip ${filterKind === kind ? "chip-active" : ""}`}
+                onClick={() => setFilterKind(kind)}
               >
-                {k === "all" ? "All" : k.charAt(0).toUpperCase() + k.slice(1)}
+                {kind === "all" ? "All" : kind.charAt(0).toUpperCase() + kind.slice(1)}
               </button>
             ))}
           </div>
@@ -160,35 +181,45 @@ export function EvidenceScreen({ state }: Props) {
           <div className="empty">No evidence yet. Drop a file above to get started.</div>
         ) : (
           <ul className="evidence-list">
-            {visible.map((e) => {
-              const linked = state.gapItems.find((g) => g.id === e.gapItemId);
+            {visible.map((item) => {
+              const linked = state.gapItems.find((gapItem) => gapItem.id === item.gapItemId);
               const linkedReview = state.reviews.find(
                 (review) =>
                   (review.plotId === state.plotId || (!state.useMocks && review.plotId === "")) &&
-                  review.gapItemId === e.gapItemId
+                  review.gapItemId === item.gapItemId
               );
               return (
-                <li key={e.id} className="evidence-item">
-                  <div className={`kind kind-${e.kind}`}>{KIND_ICON[e.kind]}</div>
+                <li key={item.id} className="evidence-item">
+                  <div className={`kind kind-${item.kind}`}>{KIND_ICON[item.kind]}</div>
                   <div className="evidence-main">
                     <div className="row-between">
-                      <strong>{e.filename}</strong>
-                      <span className={`status status-${e.state}`}>
-                        {statusLabel(e.state)}
+                      <strong>{item.filename}</strong>
+                      <span className={`status status-${item.state}`}>
+                        {statusLabel(item.state)}
                       </span>
                     </div>
                     <p className="micro muted">
-                      {formatBytes(e.sizeBytes)} · captured {formatDate(e.capturedAt)}
-                      {linked ? ` · linked to ${linked.code}` : " · unlinked"}
+                      {formatBytes(item.sizeBytes)} - captured {formatDate(item.capturedAt)}
+                      {linked ? ` - linked to ${linked.code}` : " - unlinked"}
                     </p>
-                    {e.note ? <p className="note">{e.note}</p> : null}
+                    {item.note ? <p className="note">{item.note}</p> : null}
+                    {item.errorMessage ? <p className="note">{item.errorMessage}</p> : null}
                   </div>
                   <div className="evidence-actions">
-                    {e.state === "failed" ? (
+                    {item.state === "uploading" ? (
                       <button
                         type="button"
                         className="btn btn-secondary"
-                        onClick={() => state.retryEvidence(e.id)}
+                        onClick={() => state.cancelEvidence(item.id)}
+                      >
+                        Cancel upload
+                      </button>
+                    ) : null}
+                    {item.state === "failed" ? (
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => state.retryEvidence(item.id)}
                       >
                         Retry upload
                       </button>

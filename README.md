@@ -65,6 +65,14 @@ Auth modes:
 - **api** - stores access and refresh tokens in local storage, refreshes the
   session automatically, and gates the GAP shell on organization membership.
 
+Local auth smoke:
+
+- start `smartfarm-api` on its default `http://localhost:3200`
+- set `VITE_USE_MOCKS=false`
+- leave `VITE_DEV_USER_ID` / `VITE_DEV_ORG_ID` empty so the login screen renders
+- sign in with the bootstrap account from `smartfarm-api`:
+  `demo@smartfarm.local` / `smartfarm-demo`
+
 Endpoints currently wired live:
 
 - `POST /api/v1/auth/login`
@@ -75,11 +83,21 @@ Endpoints currently wired live:
 - `GET /api/v1/farm-sites`
 - `GET /api/v1/plots`
 - `GET /api/v1/crop-cycles`
+- `GET /api/v1/gap-records`
 - `GET /api/v1/evidence`
+- `POST /api/v1/documents`
+- `GET /api/v1/documents/:id`
+- `POST /api/v1/documents/:id/finalize`
+- `POST /api/v1/evidence`
 
-GAP records, per-record review threads with comments, and the real evidence
-upload client are tracked as follow-up child issues; those flows still use
-mock data so the UI stays usable end-to-end.
+Live mode now reads checklist rows from GAP records and uploads evidence via
+the real document flow: create document, upload blob to the presigned URL,
+finalize, wait for document readiness, then submit evidence against the
+selected GAP record.
+
+Per-record review threads with comments and persisted checklist status updates
+are still follow-up work; those interactions remain local so the UI stays
+usable end-to-end.
 
 ## Related repos
 

@@ -6,9 +6,11 @@ import type {
   CropCyclesListDto,
   DocumentCreateRequest,
   DocumentCreateResponse,
+  DocumentItemResponse,
   EvidenceItemDto,
   EvidenceListDto,
   FarmSitesListDto,
+  GapRecordsListDto,
   OrganizationsListDto,
   PlotsListDto,
   ReviewQueueListDto
@@ -36,22 +38,33 @@ export const SmartFarmApi = {
   cropCycles: {
     list: () => apiRequest<CropCyclesListDto>("api/v1/crop-cycles")
   },
+  gapRecords: {
+    list: (params: {
+      farmSiteId?: string;
+      plotId?: string;
+      cropCycleId?: string;
+      status?: string;
+    } = {}) => apiRequest<GapRecordsListDto>("api/v1/gap-records", { query: params })
+  },
   evidence: {
     list: (params: { gapRecordId?: string; reviewStatus?: string } = {}) =>
       apiRequest<EvidenceListDto>("api/v1/evidence", { query: params }),
     get: (id: string) => apiRequest<EvidenceItemDto>(`api/v1/evidence/${id}`),
-    submit: (body: {
-      gapRecordId: string;
-      controlPointRef?: string;
-      documentId?: string;
-      kind?: "image" | "video" | "document";
-      fileName?: string;
-      contentType?: string;
-      fileSize?: number;
-      storageKey?: string;
-      noteText?: string;
-      capturedAt?: string;
-    }) => apiRequest<EvidenceItemDto>("api/v1/evidence", { method: "POST", body }),
+    submit: (
+      body: {
+        gapRecordId: string;
+        controlPointRef?: string;
+        documentId?: string;
+        kind?: "image" | "video" | "document";
+        fileName?: string;
+        contentType?: string;
+        fileSize?: number;
+        storageKey?: string;
+        noteText?: string;
+        capturedAt?: string;
+      },
+      signal?: AbortSignal
+    ) => apiRequest<EvidenceItemDto>("api/v1/evidence", { method: "POST", body, signal }),
     review: (
       evidenceId: string,
       body: { decision: "verified" | "needs_rework" | "comment"; comment: string }
@@ -66,8 +79,15 @@ export const SmartFarmApi = {
       apiRequest<ReviewQueueListDto>("api/v1/review-queue", { query: params })
   },
   documents: {
-    create: (body: DocumentCreateRequest) =>
-      apiRequest<DocumentCreateResponse>("api/v1/documents", { method: "POST", body })
+    create: (body: DocumentCreateRequest, signal?: AbortSignal) =>
+      apiRequest<DocumentCreateResponse>("api/v1/documents", { method: "POST", body, signal }),
+    get: (id: string, signal?: AbortSignal) =>
+      apiRequest<DocumentItemResponse>(`api/v1/documents/${id}`, { signal }),
+    finalize: (id: string, signal?: AbortSignal) =>
+      apiRequest<DocumentItemResponse>(`api/v1/documents/${id}/finalize`, {
+        method: "POST",
+        signal
+      })
   }
 };
 
