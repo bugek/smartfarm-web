@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { AppState } from "../store";
 import { formatDate, statusLabel } from "../format";
 import type { ReviewStatus } from "../types";
@@ -16,13 +16,26 @@ const NEXT_STATUS_OPTIONS: ReviewStatus[] = [
 
 export function ReviewScreen({ state }: Props) {
   const plotReviews = useMemo(
-    () => state.reviews.filter((r) => r.plotId === state.plotId),
-    [state.reviews, state.plotId]
+    () =>
+      state.reviews.filter(
+        (r) => r.plotId === state.plotId || (!state.useMocks && r.plotId === "")
+      ),
+    [state.reviews, state.plotId, state.useMocks]
   );
   const [activeReviewId, setActiveReviewId] = useState<string>(
     plotReviews[0]?.id ?? ""
   );
   const [draft, setDraft] = useState<string>("");
+
+  useEffect(() => {
+    if (plotReviews.length === 0) {
+      if (activeReviewId !== "") setActiveReviewId("");
+      return;
+    }
+    if (!plotReviews.some((review) => review.id === activeReviewId)) {
+      setActiveReviewId(plotReviews[0].id);
+    }
+  }, [plotReviews, activeReviewId]);
 
   const active = plotReviews.find((r) => r.id === activeReviewId) ?? plotReviews[0];
 
@@ -35,18 +48,36 @@ export function ReviewScreen({ state }: Props) {
   if (plotReviews.length === 0) {
     return (
       <div className="screen">
-        <header className="screen-header">
-          <div>
-            <h2>Expert review</h2>
-            <p className="muted">
-              No reviews submitted for this plot yet. Submit a GAP item from the checklist to
-              start a review thread.
-            </p>
-          </div>
-        </header>
-      </div>
-    );
-  }
+      <header className="screen-header">
+        <div>
+          <h2>Expert review</h2>
+          <p className="muted">
+            No reviews submitted for this plot yet. Submit a GAP item from the checklist to
+            start a review thread.
+          </p>
+        </div>
+      </header>
+
+      {!state.useMocks && state.dataSources.reviews.note ? (
+        <section className="screen-banner screen-banner-warning">
+          <strong>Review queue is partially live.</strong>
+          <p>{state.dataSources.reviews.note}</p>
+        </section>
+      ) : null}
+
+      {state.status.reviews.error ? (
+        <section className="screen-banner screen-banner-error" role="alert">
+          <strong>Could not load review queue from SmartFarm API.</strong>
+          <p>{state.status.reviews.error.message}</p>
+        </section>
+      ) : null}
+
+      {state.status.reviews.isLoading ? (
+        <div className="empty">Loading review queue from SmartFarm API...</div>
+      ) : null}
+    </div>
+  );
+}
 
   const linkedGap = active?.gapItemId
     ? state.gapItems.find((g) => g.id === active.gapItemId)
@@ -64,9 +95,26 @@ export function ReviewScreen({ state }: Props) {
         </div>
       </header>
 
+      {!state.useMocks && state.dataSources.reviews.note ? (
+        <section className="screen-banner screen-banner-warning">
+          <strong>Review queue is partially live.</strong>
+          <p>{state.dataSources.reviews.note}</p>
+        </section>
+      ) : null}
+
+      {state.status.reviews.error ? (
+        <section className="screen-banner screen-banner-error" role="alert">
+          <strong>Could not load review queue from SmartFarm API.</strong>
+          <p>{state.status.reviews.error.message}</p>
+        </section>
+      ) : null}
+
       <div className="review-layout">
         <aside className="review-list">
-          <h3>Submissions</h3>
+          <div className="row-between">
+            <h3>Submissions</h3>
+            {state.status.reviews.isLoading ? <span className="micro muted">Refreshing...</span> : null}
+          </div>
           <ul>
             {plotReviews.map((r) => {
               const gap = state.gapItems.find((g) => g.id === r.gapItemId);

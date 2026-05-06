@@ -40,6 +40,13 @@ export function ChecklistScreen({ state }: Props) {
         </div>
       </header>
 
+      {!state.useMocks && state.dataSources.gapItems.note ? (
+        <section className="screen-banner screen-banner-warning">
+          <strong>Checklist API not available yet.</strong>
+          <p>{state.dataSources.gapItems.note}</p>
+        </section>
+      ) : null}
+
       {items.length === 0 ? (
         <div className="empty">
           No GAP checklist items for this plot yet. New checklists are seeded when the crop

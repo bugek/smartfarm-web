@@ -263,6 +263,31 @@ textarea:focus {
   font-size: 16px;
 }
 
+.screen-banner {
+  border-radius: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--slate-200);
+  display: grid;
+  gap: 4px;
+}
+
+.screen-banner strong,
+.screen-banner p {
+  margin: 0;
+}
+
+.screen-banner-warning {
+  background: var(--amber-100);
+  border-color: #f4dba0;
+  color: #7a560f;
+}
+
+.screen-banner-error {
+  background: var(--red-100);
+  border-color: #f1c6c2;
+  color: var(--red-600);
+}
+
 /* Checklist */
 .check-list {
   list-style: none;

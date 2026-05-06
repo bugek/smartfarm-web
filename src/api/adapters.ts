@@ -113,10 +113,13 @@ const QUEUE_STATUS_TO_REVIEW: Record<EvidenceDto["reviewStatus"], ReviewStatus> 
   withdrawn: "rejected"
 };
 
-export function adaptReviewQueueItem(item: ReviewQueueItemDto): Review {
+export function adaptReviewQueueItem(
+  item: ReviewQueueItemDto,
+  context: { cropCycleToPlotId: (cropCycleId: string) => string | undefined }
+): Review {
   return {
     id: item.id,
-    plotId: "", // queue is per-evidence; plot-binding is approximate via crop cycle.
+    plotId: context.cropCycleToPlotId(item.gapRecord.cropCycle.id) ?? "",
     gapItemId: item.gapRecordId,
     status: QUEUE_STATUS_TO_REVIEW[item.reviewStatus],
     assignedAdvisorName: "Review queue",

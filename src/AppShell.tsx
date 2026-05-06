@@ -19,13 +19,16 @@ export function AppShell({ state }: Props) {
     state.organizations.length === 0 &&
     (state.status.organizations.isLoading ||
       state.status.farms.isLoading ||
-      state.status.plots.isLoading);
+      state.status.plots.isLoading ||
+      state.status.cropCycles.isLoading);
 
   const firstError =
     state.status.organizations.error ??
     state.status.farms.error ??
     state.status.plots.error ??
-    state.status.evidence.error;
+    state.status.cropCycles.error ??
+    state.status.evidence.error ??
+    state.status.reviews.error;
 
   return (
     <header className="appbar">
