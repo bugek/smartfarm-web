@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { AppState } from "../store";
 import { formatDate, statusLabel } from "../format";
 import type { ReviewStatus } from "../types";
@@ -22,22 +22,9 @@ export function ReviewScreen({ state }: Props) {
       ),
     [state.reviews, state.plotId, state.useMocks]
   );
-  const [activeReviewId, setActiveReviewId] = useState<string>(
-    plotReviews[0]?.id ?? ""
-  );
   const [draft, setDraft] = useState<string>("");
-
-  useEffect(() => {
-    if (plotReviews.length === 0) {
-      if (activeReviewId !== "") setActiveReviewId("");
-      return;
-    }
-    if (!plotReviews.some((review) => review.id === activeReviewId)) {
-      setActiveReviewId(plotReviews[0].id);
-    }
-  }, [plotReviews, activeReviewId]);
-
-  const active = plotReviews.find((r) => r.id === activeReviewId) ?? plotReviews[0];
+  const active =
+    plotReviews.find((review) => review.id === state.selectedReviewId) ?? plotReviews[0];
 
   const handleSubmit = () => {
     if (!active || draft.trim().length === 0) return;
@@ -123,7 +110,7 @@ export function ReviewScreen({ state }: Props) {
                   key={r.id}
                   className={`review-list-item ${r.id === active?.id ? "active" : ""}`}
                 >
-                  <button type="button" onClick={() => setActiveReviewId(r.id)}>
+                  <button type="button" onClick={() => state.setSelectedReviewId(r.id)}>
                     <div className="row-between">
                       <strong>{gap ? gap.code : "General"}</strong>
                       <span className={`status status-${r.status}`}>

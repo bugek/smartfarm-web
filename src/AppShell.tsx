@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import { roleLabel } from "./format";
-import type { AppState, ScreenKey } from "./store";
+import type { ScreenKey } from "./navigation";
+import type { AppState } from "./store";
 
 interface Props {
   state: AppState;
@@ -30,6 +32,7 @@ const ROLE_HINTS: Record<AppState["viewer"]["role"], Record<ScreenKey, string>> 
 };
 
 export function AppShell({ state }: Props) {
+  const [deepLinkStatus, setDeepLinkStatus] = useState<"idle" | "copied" | "failed">("idle");
   const farmsForOrg = state.farms.filter((f) => f.organizationId === state.organizationId);
   const plotsForFarm = state.plots.filter((p) => p.farmId === state.farmId);
   const activePlot = state.plots.find((p) => p.id === state.plotId);
@@ -49,6 +52,21 @@ export function AppShell({ state }: Props) {
     state.status.cropCycles.error ??
     state.status.evidence.error ??
     state.status.reviews.error;
+
+  useEffect(() => {
+    if (deepLinkStatus !== "copied") return undefined;
+    const timeoutId = window.setTimeout(() => setDeepLinkStatus("idle"), 1800);
+    return () => window.clearTimeout(timeoutId);
+  }, [deepLinkStatus]);
+
+  const copyDeepLink = async () => {
+    try {
+      await navigator.clipboard.writeText(state.deepLink);
+      setDeepLinkStatus("copied");
+    } catch {
+      setDeepLinkStatus("failed");
+    }
+  };
 
   return (
     <header className="appbar">
@@ -151,19 +169,34 @@ export function AppShell({ state }: Props) {
         </p>
       ) : null}
 
-      <nav className="tabs" aria-label="Primary">
-        {NAV.map((n) => (
-          <button
-            key={n.key}
-            type="button"
-            className={`tab ${state.screen === n.key ? "tab-active" : ""}`}
-            onClick={() => state.setScreen(n.key)}
-          >
-            <span className="tab-label">{n.label}</span>
-            <span className="tab-helper">{n.helper}</span>
+      <div className="tabs-row">
+        <nav className="tabs" aria-label="Primary">
+          {NAV.map((n) => (
+            <button
+              key={n.key}
+              type="button"
+              className={`tab ${state.screen === n.key ? "tab-active" : ""}`}
+              onClick={() => state.setScreen(n.key)}
+            >
+              <span className="tab-label">{n.label}</span>
+              <span className="tab-helper">{n.helper}</span>
+            </button>
+          ))}
+        </nav>
+
+        <div className="route-actions">
+          <button type="button" className="btn btn-secondary" onClick={() => void copyDeepLink()}>
+            Copy deep link
           </button>
-        ))}
-      </nav>
+          <span className={`micro ${deepLinkStatus === "failed" ? "route-status-error" : "muted"}`}>
+            {deepLinkStatus === "copied"
+              ? "Deep link copied."
+              : deepLinkStatus === "failed"
+                ? "Clipboard blocked. Copy the URL from the browser."
+                : "Share this exact plot view with reviewers."}
+          </span>
+        </div>
+      </div>
     </header>
   );
 }

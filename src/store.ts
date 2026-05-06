@@ -13,6 +13,7 @@ import { apiConfig } from "./api/config";
 import { SmartFarmApi } from "./api/endpoints";
 import { uploadEvidenceWithDocument } from "./api/uploads";
 import { useResource } from "./api/useResource";
+import { buildRouteHash, parseRoute, type AppRoute, type ScreenKey } from "./navigation";
 import {
   evidence as initialEvidence,
   farms as mockFarms,
@@ -35,8 +36,6 @@ import type {
   ReviewStatus,
   WorkspaceRole
 } from "./types";
-
-export type ScreenKey = "checklist" | "evidence" | "review";
 
 export interface AsyncStatus {
   isLoading: boolean;
@@ -71,6 +70,13 @@ export interface AppState {
 
   screen: ScreenKey;
   setScreen: (s: ScreenKey) => void;
+  selectedGapItemId: ID;
+  setSelectedGapItemId: (id: ID) => void;
+  selectedReviewId: ID;
+  setSelectedReviewId: (id: ID) => void;
+  openEvidence: (gapItemId?: ID) => void;
+  openReview: (reviewId?: ID) => void;
+  deepLink: string;
 
   viewer: {
     name: string;
@@ -131,6 +137,21 @@ function statusFromError(isLoading: boolean, error: ApiError | undefined): Async
   return { isLoading };
 }
 
+function getInitialRoute(): AppRoute {
+  if (typeof window === "undefined") {
+    return { screen: "checklist" };
+  }
+  return parseRoute(window.location.hash);
+}
+
+function buildAbsoluteDeepLink(route: AppRoute): string {
+  const hash = buildRouteHash(route);
+  if (typeof window === "undefined") {
+    return hash;
+  }
+  return `${window.location.origin}${window.location.pathname}${window.location.search}${hash}`;
+}
+
 function mergeById<T extends { id: string }>(base: T[], overrides: T[]): T[] {
   if (overrides.length === 0) return base;
   const overridesById = new Map(overrides.map((item) => [item.id, item]));
@@ -158,6 +179,7 @@ export function useAppState({
   syncMemberships
 }: UseAppStateOptions): AppState {
   const useMocks = apiConfig.useMocks;
+  const initialRoute = useMemo(getInitialRoute, []);
   const pendingUploadsRef = useRef(new Map<ID, EvidenceUploadInput>());
   const uploadControllersRef = useRef(new Map<ID, AbortController>());
   const mockUploadTimeoutsRef = useRef(new Map<ID, number>());
@@ -266,16 +288,87 @@ export function useAppState({
     return mergeById(remote, localReviewOverrides);
   }, [useMocks, cropCyclesRes.data, reviewQueueRes.data, localReviewOverrides]);
 
-  const [organizationId, setOrganizationIdState] = useState<ID>("");
-  const [farmId, setFarmIdState] = useState<ID>("");
-  const [plotId, setPlotIdState] = useState<ID>("");
-  const [screen, setScreen] = useState<ScreenKey>("checklist");
+  const [organizationId, setOrganizationIdState] = useState<ID>(initialRoute.organizationId ?? "");
+  const [farmId, setFarmIdState] = useState<ID>(initialRoute.farmId ?? "");
+  const [plotId, setPlotIdState] = useState<ID>(initialRoute.plotId ?? "");
+  const [screen, setScreenState] = useState<ScreenKey>(initialRoute.screen);
+  const [selectedGapItemId, setSelectedGapItemIdState] = useState<ID>(
+    initialRoute.gapItemId ?? ""
+  );
+  const [selectedReviewId, setSelectedReviewIdState] = useState<ID>(initialRoute.reviewId ?? "");
+
+  const buildCurrentRoute = useCallback(
+    (overrides: Partial<AppRoute> = {}): AppRoute => ({
+      screen,
+      organizationId: organizationId || undefined,
+      farmId: farmId || undefined,
+      plotId: plotId || undefined,
+      gapItemId: screen === "evidence" && selectedGapItemId ? selectedGapItemId : undefined,
+      reviewId: screen === "review" && selectedReviewId ? selectedReviewId : undefined,
+      ...overrides
+    }),
+    [screen, organizationId, farmId, plotId, selectedGapItemId, selectedReviewId]
+  );
+
+  const replaceUrlForRoute = useCallback((route: AppRoute) => {
+    if (typeof window === "undefined") return;
+    const nextHash = buildRouteHash(route);
+    if (window.location.hash === nextHash) return;
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${nextHash}`);
+  }, []);
+
+  const pushUrlForRoute = useCallback((route: AppRoute) => {
+    if (typeof window === "undefined") return;
+    const nextHash = buildRouteHash(route);
+    if (window.location.hash === nextHash) return;
+    window.location.hash = nextHash;
+  }, []);
+
+  const nextFarmIdForOrganization = useCallback(
+    (nextOrganizationId: ID, preferredFarmId?: ID) => {
+      const farmsForOrg = farms.filter((farm) => farm.organizationId === nextOrganizationId);
+      if (farmsForOrg.length === 0) return "";
+      if (preferredFarmId && farmsForOrg.some((farm) => farm.id === preferredFarmId)) {
+        return preferredFarmId;
+      }
+      return farmsForOrg[0].id;
+    },
+    [farms]
+  );
+
+  const nextPlotIdForFarm = useCallback(
+    (nextFarmId: ID, preferredPlotId?: ID) => {
+      const plotsForFarm = plots.filter((plot) => plot.farmId === nextFarmId);
+      if (plotsForFarm.length === 0) return "";
+      if (preferredPlotId && plotsForFarm.some((plot) => plot.id === preferredPlotId)) {
+      return preferredPlotId;
+      }
+      return plotsForFarm[0].id;
+    },
+    [plots]
+  );
 
   useEffect(() => {
     if (organizations.length === 0) return;
     syncMemberships(organizations);
   }, [organizations, syncMemberships]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const syncFromHash = () => {
+      const route = parseRoute(window.location.hash);
+      setScreenState(route.screen);
+      setSelectedGapItemIdState(route.gapItemId ?? "");
+      setSelectedReviewIdState(route.reviewId ?? "");
+      if (route.organizationId) setOrganizationIdState(route.organizationId);
+      if (route.farmId) setFarmIdState(route.farmId);
+      if (route.plotId) setPlotIdState(route.plotId);
+    };
+
+    window.addEventListener("hashchange", syncFromHash);
+    return () => window.removeEventListener("hashchange", syncFromHash);
+  }, []);
   useEffect(() => {
     if (organizations.length === 0) return;
     const preferredOrganizationId = session.activeOrganizationId;
@@ -315,10 +408,163 @@ export function useAppState({
     }
   }, [plots, farmId, plotId]);
 
-  const setOrganizationId = useCallback((id: ID) => setOrganizationIdState(id), []);
-  const setFarmId = useCallback((id: ID) => setFarmIdState(id), []);
-  const setPlotId = useCallback((id: ID) => setPlotIdState(id), []);
+  useEffect(() => {
+    const gapItemsForPlot = gapItems.filter((item) => item.plotId === plotId);
+    if (selectedGapItemId && !gapItemsForPlot.some((item) => item.id === selectedGapItemId)) {
+      setSelectedGapItemIdState("");
+    }
+  }, [gapItems, plotId, selectedGapItemId]);
 
+  useEffect(() => {
+    const reviewsForPlot = reviews.filter(
+      (review) => review.plotId === plotId || (!useMocks && review.plotId === "")
+    );
+    if (selectedReviewId && !reviewsForPlot.some((review) => review.id === selectedReviewId)) {
+      setSelectedReviewIdState("");
+    }
+  }, [reviews, plotId, selectedReviewId, useMocks]);
+
+  useEffect(() => {
+    replaceUrlForRoute(buildCurrentRoute());
+  }, [
+    buildCurrentRoute,
+    replaceUrlForRoute,
+    organizationId,
+    farmId,
+    plotId,
+    screen,
+    selectedGapItemId,
+    selectedReviewId
+  ]);
+
+  const setOrganizationId = useCallback(
+    (id: ID) => {
+      const nextFarmId = nextFarmIdForOrganization(id, farmId);
+      const nextPlotId = nextPlotIdForFarm(nextFarmId, plotId);
+      setOrganizationIdState(id);
+      setFarmIdState(nextFarmId);
+      setPlotIdState(nextPlotId);
+      setSelectedGapItemIdState("");
+      setSelectedReviewIdState("");
+      pushUrlForRoute(
+        buildCurrentRoute({
+          organizationId: id || undefined,
+          farmId: nextFarmId || undefined,
+          plotId: nextPlotId || undefined,
+          gapItemId: undefined,
+          reviewId: undefined
+        })
+      );
+    },
+    [buildCurrentRoute, farmId, nextFarmIdForOrganization, nextPlotIdForFarm, plotId, pushUrlForRoute]
+  );
+
+  const setFarmId = useCallback(
+    (id: ID) => {
+      const nextPlotId = nextPlotIdForFarm(id, plotId);
+      setFarmIdState(id);
+      setPlotIdState(nextPlotId);
+      setSelectedGapItemIdState("");
+      setSelectedReviewIdState("");
+      pushUrlForRoute(
+        buildCurrentRoute({
+          farmId: id || undefined,
+          plotId: nextPlotId || undefined,
+          gapItemId: undefined,
+          reviewId: undefined
+        })
+      );
+    },
+    [buildCurrentRoute, nextPlotIdForFarm, plotId, pushUrlForRoute]
+  );
+
+  const setPlotId = useCallback(
+    (id: ID) => {
+      setPlotIdState(id);
+      setSelectedGapItemIdState("");
+      setSelectedReviewIdState("");
+      pushUrlForRoute(
+        buildCurrentRoute({
+          plotId: id || undefined,
+          gapItemId: undefined,
+          reviewId: undefined
+        })
+      );
+    },
+    [buildCurrentRoute, pushUrlForRoute]
+  );
+
+  const setScreen = useCallback(
+    (nextScreen: ScreenKey) => {
+      setScreenState(nextScreen);
+      pushUrlForRoute(
+        buildCurrentRoute({
+          screen: nextScreen,
+          gapItemId: nextScreen === "evidence" ? selectedGapItemId || undefined : undefined,
+          reviewId: nextScreen === "review" ? selectedReviewId || undefined : undefined
+        })
+      );
+    },
+    [buildCurrentRoute, pushUrlForRoute, selectedGapItemId, selectedReviewId]
+  );
+
+  const setSelectedGapItemId = useCallback(
+    (id: ID) => {
+      setSelectedGapItemIdState(id);
+      pushUrlForRoute(
+        buildCurrentRoute({
+          screen: "evidence",
+          gapItemId: id || undefined,
+          reviewId: undefined
+        })
+      );
+    },
+    [buildCurrentRoute, pushUrlForRoute]
+  );
+
+  const setSelectedReviewId = useCallback(
+    (id: ID) => {
+      setSelectedReviewIdState(id);
+      pushUrlForRoute(
+        buildCurrentRoute({
+          screen: "review",
+          gapItemId: undefined,
+          reviewId: id || undefined
+        })
+      );
+    },
+    [buildCurrentRoute, pushUrlForRoute]
+  );
+
+  const openEvidence = useCallback(
+    (gapItemId?: ID) => {
+      setScreenState("evidence");
+      setSelectedGapItemIdState(gapItemId ?? "");
+      pushUrlForRoute(
+        buildCurrentRoute({
+          screen: "evidence",
+          gapItemId: gapItemId || undefined,
+          reviewId: undefined
+        })
+      );
+    },
+    [buildCurrentRoute, pushUrlForRoute]
+  );
+
+  const openReview = useCallback(
+    (reviewId?: ID) => {
+      setScreenState("review");
+      setSelectedReviewIdState(reviewId ?? "");
+      pushUrlForRoute(
+        buildCurrentRoute({
+          screen: "review",
+          gapItemId: undefined,
+          reviewId: reviewId || undefined
+        })
+      );
+    },
+    [buildCurrentRoute, pushUrlForRoute]
+  );
   const activeOrganization = organizations.find((organization) => organization.id === organizationId);
   const viewerRole =
     activeOrganization?.role ??
@@ -331,6 +577,7 @@ export function useAppState({
     session.user.displayName?.trim() ||
     session.user.email ||
     session.user.id;
+  const deepLink = buildAbsoluteDeepLink(buildCurrentRoute());
 
   const setLocalEvidenceState = useCallback(
     (evidenceId: ID, updater: (current: Evidence) => Evidence) => {
@@ -684,6 +931,13 @@ export function useAppState({
       setPlotId,
       screen,
       setScreen,
+      selectedGapItemId,
+      setSelectedGapItemId,
+      selectedReviewId,
+      setSelectedReviewId,
+      openEvidence,
+      openReview,
+      deepLink,
       viewer: {
         name: viewerName,
         email: session.user.email,
@@ -724,6 +978,13 @@ export function useAppState({
       setFarmId,
       setPlotId,
       screen,
+      selectedGapItemId,
+      setSelectedGapItemId,
+      selectedReviewId,
+      setSelectedReviewId,
+      openEvidence,
+      openReview,
+      deepLink,
       viewerName,
       viewerRole,
       session.user.email,
