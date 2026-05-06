@@ -11,8 +11,18 @@ import type {
 // wired. Shape mirrors the API contract drafted in smartfarm-docs.
 
 export const organizations: Organization[] = [
-  { id: "org-001", name: "Green Valley Cooperative", role: "farmer" },
-  { id: "org-002", name: "Northern Highlands Farm", role: "farmer" }
+  {
+    id: "org-001",
+    name: "Green Valley Cooperative",
+    role: "farmer",
+    membershipRole: "worker"
+  },
+  {
+    id: "org-002",
+    name: "Northern Highlands Farm",
+    role: "farmer",
+    membershipRole: "worker"
+  }
 ];
 
 export const farms: Farm[] = [

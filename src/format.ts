@@ -51,3 +51,13 @@ const CATEGORY_LABEL: Record<string, string> = {
 export function categoryLabel(category: string): string {
   return CATEGORY_LABEL[category] ?? category;
 }
+
+const ROLE_LABEL: Record<string, string> = {
+  farmer: "Farmer",
+  advisor: "Advisor",
+  compliance: "Compliance lead"
+};
+
+export function roleLabel(role: string): string {
+  return ROLE_LABEL[role] ?? role;
+}

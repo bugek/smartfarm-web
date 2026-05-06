@@ -18,6 +18,38 @@ export interface OrganizationsListDto {
   activeOrganizationId: string;
 }
 
+export interface AuthUserDto {
+  id: string;
+  email: string;
+  displayName: string | null;
+}
+
+export interface AuthSessionMembershipDto {
+  id: string;
+  organizationId: string;
+  organizationName: string;
+  role: OrganizationRole;
+}
+
+export interface AuthSessionDto {
+  user: AuthUserDto;
+  activeOrganizationId: string | null;
+  memberships: AuthSessionMembershipDto[];
+}
+
+export interface AuthTokenResponseDto {
+  accessToken: string;
+  refreshToken: string;
+  accessTokenExpiresAt: string;
+  refreshTokenExpiresAt: string;
+  session: AuthSessionDto;
+}
+
+export interface AuthLoginRequestDto {
+  email: string;
+  password: string;
+}
+
 export interface FarmSiteDto {
   id: string;
   organizationId: string;

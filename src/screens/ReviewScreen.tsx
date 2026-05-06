@@ -41,7 +41,7 @@ export function ReviewScreen({ state }: Props) {
 
   const handleSubmit = () => {
     if (!active || draft.trim().length === 0) return;
-    state.addReviewComment(active.id, draft.trim(), "Dr. Anya Wattana");
+    state.addReviewComment(active.id, draft.trim());
     setDraft("");
   };
 
@@ -192,7 +192,7 @@ export function ReviewScreen({ state }: Props) {
                 <textarea
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
-                  placeholder="Add a review comment for the farmer..."
+                  placeholder={`Add a ${state.viewer.role} comment...`}
                   rows={3}
                 />
                 <div className="row-end">

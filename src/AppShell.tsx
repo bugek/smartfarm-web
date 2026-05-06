@@ -1,3 +1,4 @@
+import { roleLabel } from "./format";
 import type { AppState, ScreenKey } from "./store";
 
 interface Props {
@@ -10,10 +11,29 @@ const NAV: { key: ScreenKey; label: string; helper: string }[] = [
   { key: "review", label: "Expert review", helper: "Advisor decisions" }
 ];
 
+const ROLE_HINTS: Record<AppState["viewer"]["role"], Record<ScreenKey, string>> = {
+  farmer: {
+    checklist: "Capture field records and keep evidence complete before expert review.",
+    evidence: "Upload clear proof tied to the right GAP item so review stays fast and traceable.",
+    review: "Track reviewer feedback and close requested changes before the audit window."
+  },
+  advisor: {
+    checklist: "Use the checklist to spot incomplete controls before you start review decisions.",
+    evidence: "Check evidence quality, timing, and linkage before you clear a submission.",
+    review: "Leave concrete, audit-ready comments so farmers know exactly what to fix."
+  },
+  compliance: {
+    checklist: "Monitor control completion across the organization and surface audit gaps early.",
+    evidence: "Check whether each plot has enough traceable evidence to support readiness.",
+    review: "Use review outcomes to escalate weak evidence and keep the audit trail consistent."
+  }
+};
+
 export function AppShell({ state }: Props) {
   const farmsForOrg = state.farms.filter((f) => f.organizationId === state.organizationId);
   const plotsForFarm = state.plots.filter((p) => p.farmId === state.farmId);
   const activePlot = state.plots.find((p) => p.id === state.plotId);
+  const activeOrganization = state.organizations.find((o) => o.id === state.organizationId);
 
   const initialLoading =
     state.organizations.length === 0 &&
@@ -41,6 +61,21 @@ export function AppShell({ state }: Props) {
               GAP platform · Phase 1{state.useMocks ? " · mock data" : " · live API"}
             </p>
           </div>
+        </div>
+
+        <div className="viewer-card">
+          <div>
+            <p className="viewer-name">{state.viewer.name}</p>
+            <p className="viewer-meta">
+              <span className={`role-pill role-pill-${state.viewer.role}`}>
+                {roleLabel(state.viewer.role)}
+              </span>
+              {activeOrganization ? ` ${activeOrganization.name}` : ""}
+            </p>
+          </div>
+          <button type="button" className="btn btn-secondary" onClick={() => void state.signOut()}>
+            Sign out
+          </button>
         </div>
 
         <div className="context">
@@ -92,9 +127,13 @@ export function AppShell({ state }: Props) {
         <p className="context-summary muted">Loading farm context from SmartFarm API…</p>
       ) : !state.useMocks && state.organizations.length === 0 ? (
         <p className="context-summary muted">
-          No organizations available for this user. Check VITE_DEV_USER_ID / VITE_DEV_ORG_ID.
+          No organizations available for this user. Check the account memberships or sign in again.
         </p>
       ) : null}
+
+      <p className="context-summary">
+        <strong>{roleLabel(state.viewer.role)} focus:</strong> {ROLE_HINTS[state.viewer.role][state.screen]}
+      </p>
 
       {firstError ? (
         <p className="context-summary" role="alert" style={{ color: "#b91c1c" }}>

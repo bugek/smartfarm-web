@@ -97,6 +97,55 @@ button {
   color: var(--slate-500);
 }
 
+.viewer-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.viewer-name,
+.viewer-meta {
+  margin: 0;
+}
+
+.viewer-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--slate-700);
+}
+
+.viewer-meta {
+  font-size: 12px;
+  color: var(--slate-500);
+}
+
+.role-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.role-pill-farmer {
+  background: var(--green-100);
+  color: var(--green-700);
+}
+
+.role-pill-advisor {
+  background: var(--blue-100);
+  color: var(--blue-600);
+}
+
+.role-pill-compliance {
+  background: var(--amber-100);
+  color: var(--amber-600);
+}
+
 .context {
   display: flex;
   gap: 12px;
@@ -415,6 +464,11 @@ textarea:focus {
   border-color: var(--green-700);
 }
 
+.btn:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
 .btn-secondary {
   background: white;
   color: var(--green-700);
@@ -657,6 +711,61 @@ textarea:focus {
 .comment-form {
   display: grid;
   gap: 8px;
+}
+
+.auth-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at top, rgba(108, 173, 84, 0.18), transparent 30%),
+    linear-gradient(180deg, #f7faf5 0%, #eef4eb 100%);
+}
+
+.auth-card {
+  width: min(560px, 100%);
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--slate-200);
+  border-radius: 18px;
+  padding: 28px;
+  box-shadow: 0 24px 60px rgba(31, 58, 42, 0.08);
+  display: grid;
+  gap: 20px;
+}
+
+.auth-card-compact {
+  width: min(480px, 100%);
+}
+
+.auth-copy h1,
+.auth-card h1 {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1.1;
+}
+
+.auth-copy p {
+  margin: 0;
+}
+
+.auth-eyebrow {
+  margin: 0 0 8px;
+  color: var(--green-700);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.auth-form {
+  display: grid;
+  gap: 14px;
+}
+
+.auth-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .empty {

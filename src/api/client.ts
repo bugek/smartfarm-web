@@ -23,7 +23,18 @@ interface RequestOptions {
   signal?: AbortSignal;
 }
 
-function buildUrl(path: string, query?: RequestOptions["query"]): string {
+export interface ApiSessionProvider {
+  getHeaders: (organizationId?: string) => Promise<Record<string, string>>;
+  onUnauthorized?: () => Promise<boolean>;
+}
+
+let sessionProvider: ApiSessionProvider | undefined;
+
+export function setApiSessionProvider(provider?: ApiSessionProvider) {
+  sessionProvider = provider;
+}
+
+export function buildApiUrl(path: string, query?: RequestOptions["query"]): string {
   const url = new URL(path.replace(/^\//, ""), apiConfig.baseUrl.endsWith("/") ? apiConfig.baseUrl : `${apiConfig.baseUrl}/`);
   if (query) {
     for (const [k, v] of Object.entries(query)) {
@@ -47,40 +58,58 @@ export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Pr
   if (apiConfig.useMocks) {
     throw new ApiError("API client called in mock mode", 0, "mock_mode");
   }
-  if (!apiConfig.devUserId || !apiConfig.devOrganizationId) {
-    throw new ApiError(
-      "Missing VITE_DEV_USER_ID / VITE_DEV_ORG_ID. Set them or enable VITE_USE_MOCKS=true.",
-      0,
-      "tenant_headers_missing"
-    );
-  }
 
-  const url = buildUrl(path, opts.query);
-  const headers: Record<string, string> = {
-    accept: "application/json",
-    ...tenantHeaders(opts.organizationId)
+  const buildHeaders = async (): Promise<Record<string, string>> => {
+    if (sessionProvider) {
+      return {
+        accept: "application/json",
+        ...(await sessionProvider.getHeaders(opts.organizationId))
+      };
+    }
+    if (!apiConfig.devUserId || !apiConfig.devOrganizationId) {
+      throw new ApiError(
+        "No authenticated session is available. Sign in or set VITE_DEV_USER_ID / VITE_DEV_ORG_ID.",
+        0,
+        "auth_required"
+      );
+    }
+    return {
+      accept: "application/json",
+      ...tenantHeaders(opts.organizationId)
+    };
   };
-  let body: BodyInit | undefined;
-  if (opts.body !== undefined) {
-    headers["content-type"] = "application/json";
-    body = JSON.stringify(opts.body);
-  }
 
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: opts.method ?? "GET",
-      headers,
-      body,
-      signal: opts.signal
-    });
-  } catch (cause) {
-    throw new ApiError(
-      cause instanceof Error ? cause.message : "Network error",
-      0,
-      "network_error",
-      cause
-    );
+  const url = buildApiUrl(path, opts.query);
+  const body = opts.body !== undefined ? JSON.stringify(opts.body) : undefined;
+
+  const send = async () => {
+    const headers = await buildHeaders();
+    if (body !== undefined) {
+      headers["content-type"] = "application/json";
+    }
+    try {
+      return await fetch(url, {
+        method: opts.method ?? "GET",
+        headers,
+        body,
+        signal: opts.signal
+      });
+    } catch (cause) {
+      throw new ApiError(
+        cause instanceof Error ? cause.message : "Network error",
+        0,
+        "network_error",
+        cause
+      );
+    }
+  };
+
+  let response = await send();
+  if (response.status === 401 && sessionProvider?.onUnauthorized) {
+    const recovered = await sessionProvider.onUnauthorized();
+    if (recovered) {
+      response = await send();
+    }
   }
 
   const contentType = response.headers.get("content-type") ?? "";
