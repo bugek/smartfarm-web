@@ -15,6 +15,18 @@ export function AppShell({ state }: Props) {
   const plotsForFarm = state.plots.filter((p) => p.farmId === state.farmId);
   const activePlot = state.plots.find((p) => p.id === state.plotId);
 
+  const initialLoading =
+    state.organizations.length === 0 &&
+    (state.status.organizations.isLoading ||
+      state.status.farms.isLoading ||
+      state.status.plots.isLoading);
+
+  const firstError =
+    state.status.organizations.error ??
+    state.status.farms.error ??
+    state.status.plots.error ??
+    state.status.evidence.error;
+
   return (
     <header className="appbar">
       <div className="appbar-row">
@@ -22,7 +34,9 @@ export function AppShell({ state }: Props) {
           <span className="brand-mark">SF</span>
           <div>
             <p className="brand-title">SmartFarm</p>
-            <p className="brand-sub">GAP platform · Phase 1</p>
+            <p className="brand-sub">
+              GAP platform · Phase 1{state.useMocks ? " · mock data" : " · live API"}
+            </p>
           </div>
         </div>
 
@@ -70,6 +84,28 @@ export function AppShell({ state }: Props) {
         <p className="context-summary">
           Working on <strong>{activePlot.name}</strong> · {activePlot.crop} ·
           {" "}{activePlot.hectares} ha · {activePlot.cycleLabel}
+        </p>
+      ) : initialLoading ? (
+        <p className="context-summary muted">Loading farm context from SmartFarm API…</p>
+      ) : !state.useMocks && state.organizations.length === 0 ? (
+        <p className="context-summary muted">
+          No organizations available for this user. Check VITE_DEV_USER_ID / VITE_DEV_ORG_ID.
+        </p>
+      ) : null}
+
+      {firstError ? (
+        <p className="context-summary" role="alert" style={{ color: "#b91c1c" }}>
+          API error{firstError.code ? ` (${firstError.code})` : ""}: {firstError.message}
+          {" "}
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => {
+              void state.refreshAll();
+            }}
+          >
+            Retry
+          </button>
         </p>
       ) : null}
 
