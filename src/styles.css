@@ -203,6 +203,34 @@ textarea:focus {
   border-bottom: 1px solid var(--slate-200);
 }
 
+.tabs-row {
+  max-width: 1200px;
+  margin: 12px auto 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.tabs-row .tabs {
+  margin: 0;
+  flex: 1 1 580px;
+}
+
+.route-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  padding-bottom: 10px;
+}
+
+.route-status-error {
+  color: var(--red-600);
+}
+
 .tab {
   background: transparent;
   border: none;

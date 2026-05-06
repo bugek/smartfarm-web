@@ -11,8 +11,9 @@ import {
 import { ApiError } from "./api/client";
 import { apiConfig } from "./api/config";
 import { SmartFarmApi } from "./api/endpoints";
-import { uploadDocumentBlob, waitForDocumentReady } from "./api/uploads";
+import { uploadEvidenceWithDocument } from "./api/uploads";
 import { useResource } from "./api/useResource";
+import { buildRouteHash, parseRoute, type AppRoute, type ScreenKey } from "./navigation";
 import {
   evidence as initialEvidence,
   farms as mockFarms,
@@ -35,8 +36,6 @@ import type {
   ReviewStatus,
   WorkspaceRole
 } from "./types";
-
-export type ScreenKey = "checklist" | "evidence" | "review";
 
 export interface AsyncStatus {
   isLoading: boolean;
@@ -61,26 +60,38 @@ interface EvidenceUploadInput {
 export interface AppState {
   useMocks: boolean;
   authMode: AuthenticatedSession["mode"];
+
   organizationId: ID;
   farmId: ID;
   plotId: ID;
   setOrganizationId: (id: ID) => void;
   setFarmId: (id: ID) => void;
   setPlotId: (id: ID) => void;
+
   screen: ScreenKey;
   setScreen: (s: ScreenKey) => void;
+  selectedGapItemId: ID;
+  setSelectedGapItemId: (id: ID) => void;
+  selectedReviewId: ID;
+  setSelectedReviewId: (id: ID) => void;
+  openEvidence: (gapItemId?: ID) => void;
+  openReview: (reviewId?: ID) => void;
+  deepLink: string;
+
   viewer: {
     name: string;
     email: string;
     role: WorkspaceRole;
   };
   signOut: () => Promise<void>;
+
   organizations: Organization[];
   farms: Farm[];
   plots: Plot[];
   gapItems: GapChecklistItem[];
   evidence: Evidence[];
   reviews: Review[];
+
   status: {
     organizations: AsyncStatus;
     farms: AsyncStatus;
@@ -95,10 +106,12 @@ export interface AppState {
     evidence: DataSourceState;
     reviews: DataSourceState;
   };
+
   refreshAll: () => Promise<void>;
   refreshReviews: () => Promise<void>;
   updateGapStatus: (gapItemId: ID, status: GapItemStatus) => void;
   addEvidence: (input: EvidenceUploadInput) => Evidence;
+  cancelEvidence: (evidenceId: ID) => void;
   retryEvidence: (evidenceId: ID) => void;
   addReviewComment: (reviewId: ID, body: string) => void;
   setReviewStatus: (reviewId: ID, status: ReviewStatus) => void;
@@ -125,6 +138,21 @@ function statusFromError(isLoading: boolean, error: ApiError | undefined): Async
   return { isLoading };
 }
 
+function getInitialRoute(): AppRoute {
+  if (typeof window === "undefined") {
+    return { screen: "checklist" };
+  }
+  return parseRoute(window.location.hash);
+}
+
+function buildAbsoluteDeepLink(route: AppRoute): string {
+  const hash = buildRouteHash(route);
+  if (typeof window === "undefined") {
+    return hash;
+  }
+  return `${window.location.origin}${window.location.pathname}${window.location.search}${hash}`;
+}
+
 function mergeById<T extends { id: string }>(base: T[], overrides: T[]): T[] {
   if (overrides.length === 0) return base;
   const overridesById = new Map(overrides.map((item) => [item.id, item]));
@@ -141,6 +169,10 @@ function upsertById<T extends { id: string }>(items: T[], next: T): T[] {
   return [...items.filter((item) => item.id !== next.id), next];
 }
 
+function isAbortError(cause: unknown): boolean {
+  return cause instanceof DOMException && cause.name === "AbortError";
+}
+
 export function useAppState({
   session,
   signOut,
@@ -148,7 +180,10 @@ export function useAppState({
   syncMemberships
 }: UseAppStateOptions): AppState {
   const useMocks = apiConfig.useMocks;
+  const initialRoute = useMemo(getInitialRoute, []);
   const pendingUploadsRef = useRef(new Map<ID, EvidenceUploadInput>());
+  const uploadControllersRef = useRef(new Map<ID, AbortController>());
+  const mockUploadTimeoutsRef = useRef(new Map<ID, number>());
 
   const orgsRes = useResource(
     () => SmartFarmApi.organizations.list(),
@@ -220,11 +255,14 @@ export function useAppState({
     if (useMocks) {
       return [...localEvidenceOverrides, ...initialEvidence];
     }
+
     const gapRecordToPlotId = (gapRecordId: string) =>
       gapItems.find((item) => item.id === gapRecordId)?.plotId;
+
     const remote = (evidenceRes.data?.items ?? []).map((item) =>
       adaptEvidence(item, { gapRecordToPlotId })
     );
+
     return [
       ...localEvidenceOverrides,
       ...remote.filter((item) => !localEvidenceOverrides.some((local) => local.id === item.id))
@@ -241,16 +279,87 @@ export function useAppState({
     return mergeById(remote, localReviewOverrides);
   }, [useMocks, gapRecordsRes.data, localReviewOverrides]);
 
-  const [organizationId, setOrganizationIdState] = useState<ID>("");
-  const [farmId, setFarmIdState] = useState<ID>("");
-  const [plotId, setPlotIdState] = useState<ID>("");
-  const [screen, setScreen] = useState<ScreenKey>("checklist");
+  const [organizationId, setOrganizationIdState] = useState<ID>(initialRoute.organizationId ?? "");
+  const [farmId, setFarmIdState] = useState<ID>(initialRoute.farmId ?? "");
+  const [plotId, setPlotIdState] = useState<ID>(initialRoute.plotId ?? "");
+  const [screen, setScreenState] = useState<ScreenKey>(initialRoute.screen);
+  const [selectedGapItemId, setSelectedGapItemIdState] = useState<ID>(
+    initialRoute.gapItemId ?? ""
+  );
+  const [selectedReviewId, setSelectedReviewIdState] = useState<ID>(initialRoute.reviewId ?? "");
+
+  const buildCurrentRoute = useCallback(
+    (overrides: Partial<AppRoute> = {}): AppRoute => ({
+      screen,
+      organizationId: organizationId || undefined,
+      farmId: farmId || undefined,
+      plotId: plotId || undefined,
+      gapItemId: screen === "evidence" && selectedGapItemId ? selectedGapItemId : undefined,
+      reviewId: screen === "review" && selectedReviewId ? selectedReviewId : undefined,
+      ...overrides
+    }),
+    [screen, organizationId, farmId, plotId, selectedGapItemId, selectedReviewId]
+  );
+
+  const replaceUrlForRoute = useCallback((route: AppRoute) => {
+    if (typeof window === "undefined") return;
+    const nextHash = buildRouteHash(route);
+    if (window.location.hash === nextHash) return;
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${nextHash}`);
+  }, []);
+
+  const pushUrlForRoute = useCallback((route: AppRoute) => {
+    if (typeof window === "undefined") return;
+    const nextHash = buildRouteHash(route);
+    if (window.location.hash === nextHash) return;
+    window.location.hash = nextHash;
+  }, []);
+
+  const nextFarmIdForOrganization = useCallback(
+    (nextOrganizationId: ID, preferredFarmId?: ID) => {
+      const farmsForOrg = farms.filter((farm) => farm.organizationId === nextOrganizationId);
+      if (farmsForOrg.length === 0) return "";
+      if (preferredFarmId && farmsForOrg.some((farm) => farm.id === preferredFarmId)) {
+        return preferredFarmId;
+      }
+      return farmsForOrg[0].id;
+    },
+    [farms]
+  );
+
+  const nextPlotIdForFarm = useCallback(
+    (nextFarmId: ID, preferredPlotId?: ID) => {
+      const plotsForFarm = plots.filter((plot) => plot.farmId === nextFarmId);
+      if (plotsForFarm.length === 0) return "";
+      if (preferredPlotId && plotsForFarm.some((plot) => plot.id === preferredPlotId)) {
+      return preferredPlotId;
+      }
+      return plotsForFarm[0].id;
+    },
+    [plots]
+  );
 
   useEffect(() => {
     if (organizations.length === 0) return;
     syncMemberships(organizations);
   }, [organizations, syncMemberships]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const syncFromHash = () => {
+      const route = parseRoute(window.location.hash);
+      setScreenState(route.screen);
+      setSelectedGapItemIdState(route.gapItemId ?? "");
+      setSelectedReviewIdState(route.reviewId ?? "");
+      if (route.organizationId) setOrganizationIdState(route.organizationId);
+      if (route.farmId) setFarmIdState(route.farmId);
+      if (route.plotId) setPlotIdState(route.plotId);
+    };
+
+    window.addEventListener("hashchange", syncFromHash);
+    return () => window.removeEventListener("hashchange", syncFromHash);
+  }, []);
   useEffect(() => {
     if (organizations.length === 0) return;
     const preferredOrganizationId = session.activeOrganizationId;
@@ -290,15 +399,167 @@ export function useAppState({
     }
   }, [plots, farmId, plotId]);
 
-  const setOrganizationId = useCallback((id: ID) => setOrganizationIdState(id), []);
-  const setFarmId = useCallback((id: ID) => setFarmIdState(id), []);
-  const setPlotId = useCallback((id: ID) => setPlotIdState(id), []);
+  useEffect(() => {
+    const gapItemsForPlot = gapItems.filter((item) => item.plotId === plotId);
+    if (selectedGapItemId && !gapItemsForPlot.some((item) => item.id === selectedGapItemId)) {
+      setSelectedGapItemIdState("");
+    }
+  }, [gapItems, plotId, selectedGapItemId]);
 
+  useEffect(() => {
+    const reviewsForPlot = reviews.filter(
+      (review) => review.plotId === plotId || (!useMocks && review.plotId === "")
+    );
+    if (selectedReviewId && !reviewsForPlot.some((review) => review.id === selectedReviewId)) {
+      setSelectedReviewIdState("");
+    }
+  }, [reviews, plotId, selectedReviewId, useMocks]);
+
+  useEffect(() => {
+    replaceUrlForRoute(buildCurrentRoute());
+  }, [
+    buildCurrentRoute,
+    replaceUrlForRoute,
+    organizationId,
+    farmId,
+    plotId,
+    screen,
+    selectedGapItemId,
+    selectedReviewId
+  ]);
+
+  const setOrganizationId = useCallback(
+    (id: ID) => {
+      const nextFarmId = nextFarmIdForOrganization(id, farmId);
+      const nextPlotId = nextPlotIdForFarm(nextFarmId, plotId);
+      setOrganizationIdState(id);
+      setFarmIdState(nextFarmId);
+      setPlotIdState(nextPlotId);
+      setSelectedGapItemIdState("");
+      setSelectedReviewIdState("");
+      pushUrlForRoute(
+        buildCurrentRoute({
+          organizationId: id || undefined,
+          farmId: nextFarmId || undefined,
+          plotId: nextPlotId || undefined,
+          gapItemId: undefined,
+          reviewId: undefined
+        })
+      );
+    },
+    [buildCurrentRoute, farmId, nextFarmIdForOrganization, nextPlotIdForFarm, plotId, pushUrlForRoute]
+  );
+
+  const setFarmId = useCallback(
+    (id: ID) => {
+      const nextPlotId = nextPlotIdForFarm(id, plotId);
+      setFarmIdState(id);
+      setPlotIdState(nextPlotId);
+      setSelectedGapItemIdState("");
+      setSelectedReviewIdState("");
+      pushUrlForRoute(
+        buildCurrentRoute({
+          farmId: id || undefined,
+          plotId: nextPlotId || undefined,
+          gapItemId: undefined,
+          reviewId: undefined
+        })
+      );
+    },
+    [buildCurrentRoute, nextPlotIdForFarm, plotId, pushUrlForRoute]
+  );
+
+  const setPlotId = useCallback(
+    (id: ID) => {
+      setPlotIdState(id);
+      setSelectedGapItemIdState("");
+      setSelectedReviewIdState("");
+      pushUrlForRoute(
+        buildCurrentRoute({
+          plotId: id || undefined,
+          gapItemId: undefined,
+          reviewId: undefined
+        })
+      );
+    },
+    [buildCurrentRoute, pushUrlForRoute]
+  );
+
+  const setScreen = useCallback(
+    (nextScreen: ScreenKey) => {
+      setScreenState(nextScreen);
+      pushUrlForRoute(
+        buildCurrentRoute({
+          screen: nextScreen,
+          gapItemId: nextScreen === "evidence" ? selectedGapItemId || undefined : undefined,
+          reviewId: nextScreen === "review" ? selectedReviewId || undefined : undefined
+        })
+      );
+    },
+    [buildCurrentRoute, pushUrlForRoute, selectedGapItemId, selectedReviewId]
+  );
+
+  const setSelectedGapItemId = useCallback(
+    (id: ID) => {
+      setSelectedGapItemIdState(id);
+      pushUrlForRoute(
+        buildCurrentRoute({
+          screen: "evidence",
+          gapItemId: id || undefined,
+          reviewId: undefined
+        })
+      );
+    },
+    [buildCurrentRoute, pushUrlForRoute]
+  );
+
+  const setSelectedReviewId = useCallback(
+    (id: ID) => {
+      setSelectedReviewIdState(id);
+      pushUrlForRoute(
+        buildCurrentRoute({
+          screen: "review",
+          gapItemId: undefined,
+          reviewId: id || undefined
+        })
+      );
+    },
+    [buildCurrentRoute, pushUrlForRoute]
+  );
+
+  const openEvidence = useCallback(
+    (gapItemId?: ID) => {
+      setScreenState("evidence");
+      setSelectedGapItemIdState(gapItemId ?? "");
+      pushUrlForRoute(
+        buildCurrentRoute({
+          screen: "evidence",
+          gapItemId: gapItemId || undefined,
+          reviewId: undefined
+        })
+      );
+    },
+    [buildCurrentRoute, pushUrlForRoute]
+  );
+
+  const openReview = useCallback(
+    (reviewId?: ID) => {
+      setScreenState("review");
+      setSelectedReviewIdState(reviewId ?? "");
+      pushUrlForRoute(
+        buildCurrentRoute({
+          screen: "review",
+          gapItemId: undefined,
+          reviewId: reviewId || undefined
+        })
+      );
+    },
+    [buildCurrentRoute, pushUrlForRoute]
+  );
   const activeOrganization = organizations.find((organization) => organization.id === organizationId);
   const viewerRole =
     activeOrganization?.role ??
-    session.memberships.find((membership) => membership.organizationId === organizationId)
-      ?.workspaceRole ??
+    session.memberships.find((membership) => membership.organizationId === organizationId)?.workspaceRole ??
     session.memberships.find(
       (membership) => membership.organizationId === session.activeOrganizationId
     )?.workspaceRole ??
@@ -307,6 +568,7 @@ export function useAppState({
     session.user.displayName?.trim() ||
     session.user.email ||
     session.user.id;
+  const deepLink = buildAbsoluteDeepLink(buildCurrentRoute());
 
   const setLocalEvidenceState = useCallback(
     (evidenceId: ID, updater: (current: Evidence) => Evidence) => {
@@ -360,7 +622,8 @@ export function useAppState({
 
   const runMockEvidenceUpload = useCallback(
     (evidenceId: ID, input: EvidenceUploadInput) => {
-      window.setTimeout(() => {
+      const timeoutId = window.setTimeout(() => {
+        mockUploadTimeoutsRef.current.delete(evidenceId);
         setLocalEvidenceState(evidenceId, (item) => ({
           ...item,
           state: "uploaded",
@@ -370,12 +633,18 @@ export function useAppState({
           markGapItemHasEvidence(input.gapItemId, evidenceId);
         }
       }, 1200);
+      mockUploadTimeoutsRef.current.set(evidenceId, timeoutId);
     },
     [markGapItemHasEvidence, setLocalEvidenceState]
   );
 
   const runLiveEvidenceUpload = useCallback(
-    async (evidenceId: ID, input: EvidenceUploadInput, capturedAt: string) => {
+    async (
+      evidenceId: ID,
+      input: EvidenceUploadInput,
+      capturedAt: string,
+      signal: AbortSignal
+    ) => {
       if (!input.gapItemId) {
         throw new ApiError(
           "Select a GAP item before uploading in live mode. The API requires a real gapRecordId for each evidence submission.",
@@ -387,35 +656,35 @@ export function useAppState({
       const gapItem = gapItems.find((item) => item.id === input.gapItemId);
       if (!gapItem) {
         throw new ApiError(
-          "The selected GAP item is no longer available. Refresh the page and try again.",
+          "The selected GAP item is no longer available. Refresh the page and try again after OME-94 is merged.",
           404,
           "gap_record_not_found"
         );
       }
 
-      const contentType = input.file.type.trim() || undefined;
-      const createdDocument = await SmartFarmApi.documents.create({
-        fileName: input.filename,
-        kind: input.kind,
-        contentType,
-        declaredSize: input.sizeBytes,
-        metadata: {
-          source: "smartfarm-web",
-          plotId: input.plotId,
-          gapRecordId: input.gapItemId
-        }
-      });
-
-      await uploadDocumentBlob(createdDocument.upload.url, input.file, contentType);
-      await SmartFarmApi.documents.finalize(createdDocument.item.id);
-      await waitForDocumentReady(createdDocument.item.id);
-      await SmartFarmApi.evidence.submit({
-        gapRecordId: input.gapItemId,
-        controlPointRef: gapItem.code,
-        documentId: createdDocument.item.id,
-        noteText: input.note,
-        capturedAt
-      });
+      await uploadEvidenceWithDocument(
+        {
+          file: input.file,
+          document: {
+            fileName: input.filename,
+            kind: input.kind,
+            contentType: input.file.type.trim() || undefined,
+            declaredSize: input.sizeBytes,
+            metadata: {
+              source: "smartfarm-web",
+              plotId: input.plotId,
+              gapRecordId: input.gapItemId
+            }
+          },
+          evidence: {
+            gapRecordId: input.gapItemId,
+            controlPointRef: gapItem.code,
+            noteText: input.note,
+            capturedAt
+          }
+        },
+        { signal }
+      );
 
       setLocalEvidenceState(evidenceId, (item) => ({
         ...item,
@@ -425,10 +694,7 @@ export function useAppState({
       markGapItemHasEvidence(input.gapItemId, evidenceId);
       pendingUploadsRef.current.delete(evidenceId);
 
-      const refreshResults = await Promise.allSettled([
-        evidenceRes.reload(),
-        gapRecordsRes.reload()
-      ]);
+      const refreshResults = await Promise.allSettled([evidenceRes.reload(), gapRecordsRes.reload()]);
       if (refreshResults.every((result) => result.status === "fulfilled")) {
         setLocalEvidenceOverrides((prev) => prev.filter((item) => item.id !== evidenceId));
       } else {
@@ -439,6 +705,39 @@ export function useAppState({
       }
     },
     [evidenceRes, gapItems, gapRecordsRes, markGapItemHasEvidence, setLocalEvidenceState]
+  );
+
+  const startEvidenceUpload = useCallback(
+    (evidenceId: ID, input: EvidenceUploadInput, capturedAt: string) => {
+      const run = async () => {
+        try {
+          if (useMocks) {
+            runMockEvidenceUpload(evidenceId, input);
+            return;
+          }
+
+          const controller = new AbortController();
+          uploadControllersRef.current.set(evidenceId, controller);
+          await runLiveEvidenceUpload(evidenceId, input, capturedAt, controller.signal);
+        } catch (cause) {
+          const message = isAbortError(cause)
+            ? "Upload cancelled."
+            : cause instanceof Error
+              ? cause.message
+              : "Upload failed.";
+          setLocalEvidenceState(evidenceId, (item) => ({
+            ...item,
+            state: "failed",
+            errorMessage: message
+          }));
+        } finally {
+          uploadControllersRef.current.delete(evidenceId);
+        }
+      };
+
+      void run();
+    },
+    [runLiveEvidenceUpload, runMockEvidenceUpload, setLocalEvidenceState, useMocks]
   );
 
   const updateGapStatus = useCallback(
@@ -479,28 +778,32 @@ export function useAppState({
 
       pendingUploadsRef.current.set(id, input);
       setLocalEvidenceOverrides((prev) => [created, ...prev]);
-
-      const run = async () => {
-        try {
-          if (useMocks) {
-            runMockEvidenceUpload(id, input);
-            return;
-          }
-          await runLiveEvidenceUpload(id, input, created.capturedAt);
-        } catch (cause) {
-          const message = cause instanceof Error ? cause.message : "Upload failed.";
-          setLocalEvidenceState(id, (item) => ({
-            ...item,
-            state: "failed",
-            errorMessage: message
-          }));
-        }
-      };
-
-      void run();
+      startEvidenceUpload(id, input, created.capturedAt);
       return created;
     },
-    [runLiveEvidenceUpload, runMockEvidenceUpload, setLocalEvidenceState, useMocks]
+    [startEvidenceUpload]
+  );
+
+  const cancelEvidence = useCallback(
+    (evidenceId: ID) => {
+      const controller = uploadControllersRef.current.get(evidenceId);
+      if (controller) {
+        controller.abort();
+        return;
+      }
+
+      const timeoutId = mockUploadTimeoutsRef.current.get(evidenceId);
+      if (timeoutId != null) {
+        window.clearTimeout(timeoutId);
+        mockUploadTimeoutsRef.current.delete(evidenceId);
+        setLocalEvidenceState(evidenceId, (item) => ({
+          ...item,
+          state: "failed",
+          errorMessage: "Upload cancelled."
+        }));
+      }
+    },
+    [setLocalEvidenceState]
   );
 
   const retryEvidence = useCallback(
@@ -524,27 +827,9 @@ export function useAppState({
         state: "uploading",
         errorMessage: undefined
       }));
-
-      const run = async () => {
-        try {
-          if (useMocks) {
-            runMockEvidenceUpload(evidenceId, input);
-            return;
-          }
-          await runLiveEvidenceUpload(evidenceId, input, capturedAt);
-        } catch (cause) {
-          const message = cause instanceof Error ? cause.message : "Upload failed.";
-          setLocalEvidenceState(evidenceId, (item) => ({
-            ...item,
-            state: "failed",
-            errorMessage: message
-          }));
-        }
-      };
-
-      void run();
+      startEvidenceUpload(evidenceId, input, capturedAt);
     },
-    [localEvidenceOverrides, runLiveEvidenceUpload, runMockEvidenceUpload, setLocalEvidenceState, useMocks]
+    [localEvidenceOverrides, setLocalEvidenceState, startEvidenceUpload]
   );
 
   const addReviewComment = useCallback(
@@ -558,6 +843,7 @@ export function useAppState({
         createdAt: new Date().toISOString(),
         source: "thread_comment"
       };
+
       setLocalReviewOverrides((prev) => {
         const existing =
           prev.find((review) => review.id === reviewId) ??
@@ -614,6 +900,7 @@ export function useAppState({
         reviews: { mode: "mock", note: "Review submissions use local mock data." }
       };
     }
+
     return {
       gapItems: {
         mode: "api",
@@ -641,6 +928,13 @@ export function useAppState({
       setPlotId,
       screen,
       setScreen,
+      selectedGapItemId,
+      setSelectedGapItemId,
+      selectedReviewId,
+      setSelectedReviewId,
+      openEvidence,
+      openReview,
+      deepLink,
       viewer: {
         name: viewerName,
         email: session.user.email,
@@ -667,6 +961,7 @@ export function useAppState({
       refreshReviews,
       updateGapStatus,
       addEvidence,
+      cancelEvidence,
       retryEvidence,
       addReviewComment,
       setReviewStatus
@@ -681,6 +976,13 @@ export function useAppState({
       setFarmId,
       setPlotId,
       screen,
+      selectedGapItemId,
+      setSelectedGapItemId,
+      selectedReviewId,
+      setSelectedReviewId,
+      openEvidence,
+      openReview,
+      deepLink,
       viewerName,
       viewerRole,
       session.user.email,
@@ -708,6 +1010,7 @@ export function useAppState({
       refreshReviews,
       updateGapStatus,
       addEvidence,
+      cancelEvidence,
       retryEvidence,
       addReviewComment,
       setReviewStatus

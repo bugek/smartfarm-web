@@ -25,20 +25,20 @@ export function ReviewScreen({ state }: Props) {
       ),
     [state.reviews, state.plotId, state.useMocks]
   );
-  const [activeReviewId, setActiveReviewId] = useState<string>(plotReviews[0]?.id ?? "");
   const [draft, setDraft] = useState<string>("");
+  const active =
+    plotReviews.find((review) => review.id === state.selectedReviewId) ?? plotReviews[0];
 
   useEffect(() => {
     if (plotReviews.length === 0) {
-      if (activeReviewId !== "") setActiveReviewId("");
+      if (state.selectedReviewId !== "") state.setSelectedReviewId("");
       return;
     }
-    if (!plotReviews.some((review) => review.id === activeReviewId)) {
-      setActiveReviewId(plotReviews[0].id);
-    }
-  }, [plotReviews, activeReviewId]);
 
-  const active = plotReviews.find((review) => review.id === activeReviewId) ?? plotReviews[0];
+    if (!plotReviews.some((review) => review.id === state.selectedReviewId)) {
+      state.setSelectedReviewId(plotReviews[0].id);
+    }
+  }, [plotReviews, state.selectedReviewId, state.setSelectedReviewId]);
 
   const handleMockComment = () => {
     if (!active || draft.trim().length === 0) return;
@@ -126,7 +126,7 @@ export function ReviewScreen({ state }: Props) {
                   key={review.id}
                   className={`review-list-item ${review.id === active?.id ? "active" : ""}`}
                 >
-                  <button type="button" onClick={() => setActiveReviewId(review.id)}>
+                  <button type="button" onClick={() => state.setSelectedReviewId(review.id)}>
                     <div className="row-between">
                       <strong>{gap ? gap.code : review.controlPointRef ?? "GAP record"}</strong>
                       <span className={`status status-${review.status}`}>{statusLabel(review.status)}</span>

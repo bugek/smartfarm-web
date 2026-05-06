@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
-import { formatBytes, formatDate, statusLabel } from "../format";
+import type { AppState } from "../store";
 import { inferKind } from "../store";
-import type { AppState, ScreenKey } from "../store";
+import { formatBytes, formatDate, statusLabel } from "../format";
 import type { EvidenceKind } from "../types";
 
 interface Props {
@@ -16,7 +16,6 @@ const KIND_ICON: Record<EvidenceKind, string> = {
 
 export function EvidenceScreen({ state }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [selectedGapItem, setSelectedGapItem] = useState<string>("");
   const [note, setNote] = useState<string>("");
   const [filterKind, setFilterKind] = useState<EvidenceKind | "all">("all");
   const liveUploadNeedsLinkedGapItem = !state.useMocks;
@@ -34,14 +33,14 @@ export function EvidenceScreen({ state }: Props) {
 
   const plotGapItems = state.gapItems.filter((item) => item.plotId === state.plotId);
   const uploadDisabled =
-    liveUploadNeedsLinkedGapItem && (!selectedGapItem || plotGapItems.length === 0);
+    liveUploadNeedsLinkedGapItem && (!state.selectedGapItemId || plotGapItems.length === 0);
 
   const handleFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
     Array.from(files).forEach((file) => {
       state.addEvidence({
         plotId: state.plotId,
-        gapItemId: selectedGapItem || undefined,
+        gapItemId: state.selectedGapItemId || undefined,
         kind: inferKind(file.name),
         filename: file.name,
         sizeBytes: file.size,
@@ -95,8 +94,8 @@ export function EvidenceScreen({ state }: Props) {
           <label>
             <span className="label">Linked GAP item</span>
             <select
-              value={selectedGapItem}
-              onChange={(event) => setSelectedGapItem(event.target.value)}
+              value={state.selectedGapItemId}
+              onChange={(e) => state.setSelectedGapItemId(e.target.value)}
             >
               <option value="">
                 {state.useMocks
@@ -184,6 +183,11 @@ export function EvidenceScreen({ state }: Props) {
           <ul className="evidence-list">
             {visible.map((item) => {
               const linked = state.gapItems.find((gapItem) => gapItem.id === item.gapItemId);
+              const linkedReview = state.reviews.find(
+                (review) =>
+                  (review.plotId === state.plotId || (!state.useMocks && review.plotId === "")) &&
+                  review.gapItemId === item.gapItemId
+              );
               return (
                 <li key={item.id} className="evidence-item">
                   <div className={`kind kind-${item.kind}`}>{KIND_ICON[item.kind]}</div>
@@ -202,6 +206,15 @@ export function EvidenceScreen({ state }: Props) {
                     {item.errorMessage ? <p className="note">{item.errorMessage}</p> : null}
                   </div>
                   <div className="evidence-actions">
+                    {item.state === "uploading" ? (
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => state.cancelEvidence(item.id)}
+                      >
+                        Cancel upload
+                      </button>
+                    ) : null}
                     {item.state === "failed" ? (
                       <button
                         type="button"
@@ -214,7 +227,7 @@ export function EvidenceScreen({ state }: Props) {
                     <button
                       type="button"
                       className="btn btn-ghost"
-                      onClick={() => state.setScreen("review" as ScreenKey)}
+                      onClick={() => state.openReview(linkedReview?.id)}
                     >
                       View review
                     </button>

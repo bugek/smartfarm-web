@@ -84,7 +84,7 @@ export function ChecklistScreen({ state }: Props) {
                   <button
                     type="button"
                     className="btn btn-secondary"
-                    onClick={() => state.setScreen("evidence")}
+                    onClick={() => state.openEvidence(item.id)}
                   >
                     Add evidence
                   </button>

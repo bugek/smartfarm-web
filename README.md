@@ -25,6 +25,17 @@ Phase 1 is GAP-first:
 - TypeScript
 - Vite
 
+## Routing
+
+The shell uses hash routes so plot deep links work in local preview and static
+hosting without extra rewrite rules.
+
+Examples:
+
+- `#/checklist?org=org-1&farm=farm-1&plot=plot-1`
+- `#/evidence?org=org-1&farm=farm-1&plot=plot-1&gapItem=gap-3`
+- `#/review?org=org-1&farm=farm-1&plot=plot-1&review=rev-2`
+
 ## Scripts
 
 ```bash
@@ -53,6 +64,14 @@ Auth modes:
   `x-organization-id`, and optional `x-membership-role` on each request.
 - **api** - stores access and refresh tokens in local storage, refreshes the
   session automatically, and gates the GAP shell on organization membership.
+
+Local auth smoke:
+
+- start `smartfarm-api` on its default `http://localhost:3200`
+- set `VITE_USE_MOCKS=false`
+- leave `VITE_DEV_USER_ID` / `VITE_DEV_ORG_ID` empty so the login screen renders
+- sign in with the bootstrap account from `smartfarm-api`:
+  `demo@smartfarm.local` / `smartfarm-demo`
 
 Endpoints currently wired live:
 
