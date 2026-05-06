@@ -64,11 +64,21 @@ Endpoints currently wired live:
 - `GET /api/v1/farm-sites`
 - `GET /api/v1/plots`
 - `GET /api/v1/crop-cycles`
+- `GET /api/v1/gap-records`
 - `GET /api/v1/evidence`
+- `POST /api/v1/documents`
+- `GET /api/v1/documents/:id`
+- `POST /api/v1/documents/:id/finalize`
+- `POST /api/v1/evidence`
 
-GAP records, per-record review threads with comments, and the real evidence
-upload client are tracked as follow-up child issues; those flows still use
-mock data so the UI stays usable end-to-end.
+Live mode now reads checklist rows from GAP records and uploads evidence via
+the real document flow: create document, upload blob to the presigned URL,
+finalize, wait for document readiness, then submit evidence against the
+selected GAP record.
+
+Per-record review threads with comments and persisted checklist status updates
+are still follow-up work; those interactions remain local so the UI stays
+usable end-to-end.
 
 ## Related repos
 

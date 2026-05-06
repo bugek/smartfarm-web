@@ -189,6 +189,54 @@ export interface ReviewQueueListDto {
   items: ReviewQueueItemDto[];
 }
 
+export type ApiGapRecordStatus =
+  | "draft"
+  | "submitted"
+  | "reviewed"
+  | "needs_action"
+  | "approved";
+
+export interface GapRecordDto {
+  id: string;
+  organizationId: string;
+  cropCycleId: string;
+  checklistId: string | null;
+  title: string;
+  notes: string | null;
+  status: ApiGapRecordStatus;
+  recordedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  controlPointRef: string | null;
+  controlPointCatalog: {
+    id: string;
+    code: string;
+    title: string;
+    description: string;
+  } | null;
+  cropCycle: {
+    id: string;
+    cropName: string;
+    startedAt: string | null;
+    endedAt: string | null;
+    farmSite: { id: string; name: string; code: string | null };
+    plot: { id: string; name: string; areaRai: number | null } | null;
+  } | null;
+  evidenceCount: number;
+  advisoryCommentCount: number;
+}
+
+export interface GapRecordsListDto {
+  items: GapRecordDto[];
+  organizationId: string;
+  filters: {
+    farmSiteId: string | null;
+    plotId: string | null;
+    cropCycleId: string | null;
+    status: ApiGapRecordStatus | null;
+  };
+}
+
 export interface DocumentCreateRequest {
   fileName: string;
   kind: "image" | "video" | "document" | string;
@@ -221,4 +269,8 @@ export interface DocumentDto {
 export interface DocumentCreateResponse {
   item: DocumentDto;
   upload: { url: string; method: "PUT"; expiresAt: string };
+}
+
+export interface DocumentItemResponse {
+  item: DocumentDto;
 }
