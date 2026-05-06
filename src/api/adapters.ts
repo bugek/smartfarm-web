@@ -6,6 +6,7 @@
 // we adapt and document the gap with TODO(API) markers.
 
 import type {
+  AuthSessionDto,
   CropCycleDto,
   EvidenceDto,
   FarmSiteDto,
@@ -21,7 +22,8 @@ import type {
   Organization,
   Plot,
   Review,
-  ReviewStatus
+  ReviewStatus,
+  WorkspaceRole
 } from "../types";
 
 // 1 rai = 0.16 hectares; convert for display until plot UI accepts rai natively.
@@ -34,12 +36,40 @@ const ROLE_MAP: Record<OrganizationRole, Organization["role"]> = {
   worker: "farmer"
 };
 
+export function adaptWorkspaceRole(role: OrganizationRole): WorkspaceRole {
+  return ROLE_MAP[role];
+}
+
 export function adaptOrganization(dto: OrganizationDto): Organization {
   const role = dto.memberships?.[0]?.role;
   return {
     id: dto.id,
     name: dto.name,
-    role: role ? ROLE_MAP[role] : "farmer"
+    role: role ? ROLE_MAP[role] : "farmer",
+    membershipRole: role ?? "worker"
+  };
+}
+
+export interface AuthSession {
+  user: AuthSessionDto["user"];
+  activeOrganizationId: string | null;
+  memberships: {
+    id: string;
+    organizationId: string;
+    organizationName: string;
+    role: OrganizationRole;
+    workspaceRole: WorkspaceRole;
+  }[];
+}
+
+export function adaptAuthSession(dto: AuthSessionDto): AuthSession {
+  return {
+    user: dto.user,
+    activeOrganizationId: dto.activeOrganizationId,
+    memberships: dto.memberships.map((membership) => ({
+      ...membership,
+      workspaceRole: adaptWorkspaceRole(membership.role)
+    }))
   };
 }
 

@@ -1,5 +1,8 @@
 import { apiRequest } from "./client";
 import type {
+  AuthLoginRequestDto,
+  AuthSessionDto,
+  AuthTokenResponseDto,
   CropCyclesListDto,
   DocumentCreateRequest,
   DocumentCreateResponse,
@@ -12,6 +15,15 @@ import type {
 } from "./dto";
 
 export const SmartFarmApi = {
+  auth: {
+    login: (body: AuthLoginRequestDto) =>
+      apiRequest<AuthTokenResponseDto>("api/v1/auth/login", { method: "POST", body }),
+    refresh: (body: { refreshToken: string }) =>
+      apiRequest<AuthTokenResponseDto>("api/v1/auth/refresh", { method: "POST", body }),
+    session: () => apiRequest<AuthSessionDto>("api/v1/auth/session"),
+    logout: (body: { refreshToken: string }) =>
+      apiRequest<{ ok: true }>("api/v1/auth/logout", { method: "POST", body })
+  },
   organizations: {
     list: () => apiRequest<OrganizationsListDto>("api/v1/organizations")
   },

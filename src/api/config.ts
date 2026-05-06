@@ -1,11 +1,14 @@
 // SmartFarm API client configuration.
 //
-// Auth is intentionally out of scope for OME-90 (a separate child issue handles
-// real auth). For development the app reads tenant headers from Vite env vars
-// so screens can talk to the API without a sign-in flow.
+// The app now supports three auth modes:
+// - mock: seeded local session for mock data
+// - dev_headers: tenant headers from Vite env vars
+// - api: login + stored bearer tokens with refresh
 //
 // Required when VITE_USE_MOCKS is "false":
 //   VITE_API_BASE_URL  e.g. http://localhost:4000
+//
+// Required for dev_headers mode:
 //   VITE_DEV_USER_ID   user id with a membership in VITE_DEV_ORG_ID
 //   VITE_DEV_ORG_ID    organization id; sets x-organization-id default
 //

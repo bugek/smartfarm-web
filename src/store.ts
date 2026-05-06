@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { AuthenticatedSession } from "./auth/session";
 import {
   adaptEvidence,
   adaptFarmSite,
@@ -29,7 +30,8 @@ import type {
   Plot,
   Review,
   ReviewComment,
-  ReviewStatus
+  ReviewStatus,
+  WorkspaceRole
 } from "./types";
 
 export type ScreenKey = "checklist" | "evidence" | "review";
@@ -47,6 +49,7 @@ export interface DataSourceState {
 export interface AppState {
   // mode
   useMocks: boolean;
+  authMode: AuthenticatedSession["mode"];
 
   // context
   organizationId: ID;
@@ -59,6 +62,14 @@ export interface AppState {
   // navigation
   screen: ScreenKey;
   setScreen: (s: ScreenKey) => void;
+
+  // actor
+  viewer: {
+    name: string;
+    email: string;
+    role: WorkspaceRole;
+  };
+  signOut: () => Promise<void>;
 
   // data
   organizations: Organization[];
@@ -96,8 +107,15 @@ export interface AppState {
     note?: string;
   }) => Evidence;
   retryEvidence: (evidenceId: ID) => void;
-  addReviewComment: (reviewId: ID, body: string, authorName: string) => void;
+  addReviewComment: (reviewId: ID, body: string) => void;
   setReviewStatus: (reviewId: ID, status: ReviewStatus) => void;
+}
+
+interface UseAppStateOptions {
+  session: AuthenticatedSession;
+  signOut: () => Promise<void>;
+  setActiveOrganizationId: (organizationId: string) => void;
+  syncMemberships: (organizations: Organization[]) => void;
 }
 
 export function inferKind(filename: string): EvidenceKind {
@@ -114,7 +132,12 @@ function statusFromError(isLoading: boolean, error: ApiError | undefined): Async
   return { isLoading };
 }
 
-export function useAppState(): AppState {
+export function useAppState({
+  session,
+  signOut,
+  setActiveOrganizationId,
+  syncMemberships
+}: UseAppStateOptions): AppState {
   const useMocks = apiConfig.useMocks;
 
   // ---------- Remote resources (skipped when in mock mode) ----------
@@ -149,11 +172,19 @@ export function useAppState(): AppState {
     { enabled: !useMocks }
   );
 
+  const membershipOrgIds = useMemo(
+    () => new Set(session.memberships.map((membership) => membership.organizationId)),
+    [session.memberships]
+  );
+
   // ---------- Adapt to UI types (or use mocks) ----------
   const organizations: Organization[] = useMemo(() => {
-    if (useMocks) return mockOrganizations;
-    return (orgsRes.data?.items ?? []).map(adaptOrganization);
-  }, [useMocks, orgsRes.data]);
+    const allOrganizations = useMocks
+      ? mockOrganizations
+      : (orgsRes.data?.items ?? []).map(adaptOrganization);
+    if (membershipOrgIds.size === 0) return allOrganizations;
+    return allOrganizations.filter((organization) => membershipOrgIds.has(organization.id));
+  }, [useMocks, orgsRes.data, membershipOrgIds]);
 
   const farms: Farm[] = useMemo(() => {
     if (useMocks) return mockFarms;
@@ -236,13 +267,27 @@ export function useAppState(): AppState {
   const [plotId, setPlotIdState] = useState<ID>("");
   const [screen, setScreen] = useState<ScreenKey>("checklist");
 
+  useEffect(() => {
+    if (organizations.length === 0) return;
+    syncMemberships(organizations);
+  }, [organizations, syncMemberships]);
+
   // Initial selection cascades when data first arrives or context changes.
   useEffect(() => {
     if (organizations.length === 0) return;
-    if (!organizations.some((o) => o.id === organizationId)) {
-      setOrganizationIdState(organizations[0].id);
+    const preferredOrganizationId = session.activeOrganizationId;
+    const nextOrganizationId = organizations.some((o) => o.id === organizationId)
+      ? organizationId
+      : organizations.find((o) => o.id === preferredOrganizationId)?.id ?? organizations[0].id;
+    if (nextOrganizationId !== organizationId) {
+      setOrganizationIdState(nextOrganizationId);
     }
-  }, [organizations, organizationId]);
+  }, [organizations, organizationId, session.activeOrganizationId]);
+
+  useEffect(() => {
+    if (!organizationId) return;
+    setActiveOrganizationId(organizationId);
+  }, [organizationId, setActiveOrganizationId]);
 
   useEffect(() => {
     const farmsForOrg = farms.filter((f) => f.organizationId === organizationId);
@@ -269,6 +314,17 @@ export function useAppState(): AppState {
   const setOrganizationId = useCallback((id: ID) => setOrganizationIdState(id), []);
   const setFarmId = useCallback((id: ID) => setFarmIdState(id), []);
   const setPlotId = useCallback((id: ID) => setPlotIdState(id), []);
+  const activeOrganization = organizations.find((organization) => organization.id === organizationId);
+  const viewerRole =
+    activeOrganization?.role ??
+    session.memberships.find(
+      (membership) => membership.organizationId === session.activeOrganizationId
+    )?.workspaceRole ??
+    "farmer";
+  const viewerName =
+    session.user.displayName?.trim() ||
+    session.user.email ||
+    session.user.id;
 
   // ---------- Mutations ----------
 
@@ -339,13 +395,13 @@ export function useAppState(): AppState {
   }, []);
 
   const addReviewComment = useCallback(
-    (reviewId: ID, body: string, authorName: string) => {
+    (reviewId: ID, body: string) => {
       // TODO(API): wire to a real per-review comment endpoint once available.
       const comment: ReviewComment = {
         id: `cm-${Math.random().toString(36).slice(2, 9)}`,
         reviewId,
-        authorName,
-        authorRole: "advisor",
+        authorName: viewerName,
+        authorRole: viewerRole,
         body,
         createdAt: new Date().toISOString()
       };
@@ -362,7 +418,7 @@ export function useAppState(): AppState {
         return [...prev.filter((review) => review.id !== reviewId), nextReview];
       });
     },
-    [reviews]
+    [reviews, viewerName, viewerRole]
   );
 
   const setReviewStatus = useCallback((reviewId: ID, status: ReviewStatus) => {
@@ -418,6 +474,7 @@ export function useAppState(): AppState {
   return useMemo<AppState>(
     () => ({
       useMocks,
+      authMode: session.mode,
       organizationId,
       farmId,
       plotId,
@@ -426,6 +483,12 @@ export function useAppState(): AppState {
       setPlotId,
       screen,
       setScreen,
+      viewer: {
+        name: viewerName,
+        email: session.user.email,
+        role: viewerRole
+      },
+      signOut,
       organizations,
       farms,
       plots,
@@ -464,6 +527,7 @@ export function useAppState(): AppState {
     }),
     [
       useMocks,
+      session.mode,
       organizationId,
       farmId,
       plotId,
@@ -471,6 +535,10 @@ export function useAppState(): AppState {
       setFarmId,
       setPlotId,
       screen,
+      viewerName,
+      viewerRole,
+      session.user.email,
+      signOut,
       organizations,
       farms,
       plots,
