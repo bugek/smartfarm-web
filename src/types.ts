@@ -53,6 +53,7 @@ export interface Evidence {
   capturedAt: string;
   state: EvidenceUploadState;
   note?: string;
+  errorMessage?: string;
 }
 
 export type ReviewStatus = "awaiting_review" | "changes_requested" | "approved" | "rejected";

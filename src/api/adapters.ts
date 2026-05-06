@@ -9,6 +9,7 @@ import type {
   CropCycleDto,
   EvidenceDto,
   FarmSiteDto,
+  GapRecordDto,
   OrganizationDto,
   OrganizationRole,
   PlotDto,
@@ -18,6 +19,7 @@ import type {
   Evidence,
   EvidenceUploadState,
   Farm,
+  GapChecklistItem,
   Organization,
   Plot,
   Review,
@@ -77,6 +79,53 @@ function formatCycleLabel(cycle: CropCycleDto): string {
   return cycle.cropName;
 }
 
+function inferGapCategory(
+  dto: Pick<GapRecordDto, "title" | "controlPointRef">
+): GapChecklistItem["category"] {
+  const haystack = `${dto.controlPointRef ?? ""} ${dto.title}`.toLowerCase();
+  if (haystack.includes("soil")) return "soil";
+  if (haystack.includes("water") || haystack.includes("irrig")) return "water";
+  if (haystack.includes("harvest")) return "harvest";
+  if (haystack.includes("worker") || haystack.includes("ppe") || haystack.includes("safety")) {
+    return "worker_safety";
+  }
+  if (haystack.includes("input") || haystack.includes("spray") || haystack.includes("fert")) {
+    return "inputs";
+  }
+  return "records";
+}
+
+const GAP_STATUS_TO_UI: Record<GapRecordDto["status"], GapChecklistItem["status"]> = {
+  draft: "pending",
+  submitted: "in_progress",
+  reviewed: "in_progress",
+  needs_action: "needs_evidence",
+  approved: "complete"
+};
+
+export function adaptGapRecord(dto: GapRecordDto): GapChecklistItem {
+  const baseStatus = GAP_STATUS_TO_UI[dto.status];
+  const evidenceIds = Array.from(
+    { length: dto.evidenceCount },
+    (_, index) => `${dto.id}:evidence:${index}`
+  );
+
+  return {
+    id: dto.id,
+    plotId: dto.cropCycle?.plot?.id ?? "",
+    category: inferGapCategory(dto),
+    code: dto.controlPointCatalog?.code ?? dto.controlPointRef ?? "GAP",
+    title: dto.title,
+    description:
+      dto.controlPointCatalog?.description ??
+      dto.notes ??
+      "Record synced from the SmartFarm GAP checklist.",
+    status: dto.evidenceCount === 0 && baseStatus !== "complete" ? "needs_evidence" : baseStatus,
+    evidenceIds,
+    updatedAt: dto.updatedAt
+  };
+}
+
 const REVIEW_STATE_TO_UI: Record<EvidenceDto["reviewStatus"], EvidenceUploadState> = {
   // The MVP shell models only upload state; until the UI grows a verification
   // chip, surface review status in the same status pill via this mapping.
@@ -94,8 +143,8 @@ export function adaptEvidence(
   return {
     id: dto.id,
     plotId,
-    // gapRecordId is stored on gapItemId for now; the GAP record list endpoint
-    // is tracked as a follow-up so the UI can resolve real GAP item ids.
+    // Keep the UI field name stable while the checklist screen still talks in
+    // terms of "GAP items"; live mode now feeds those items from gap records.
     gapItemId: dto.gapRecordId,
     kind: dto.kind,
     filename: dto.fileName,

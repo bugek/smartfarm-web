@@ -3,9 +3,11 @@ import type {
   CropCyclesListDto,
   DocumentCreateRequest,
   DocumentCreateResponse,
+  DocumentItemResponse,
   EvidenceItemDto,
   EvidenceListDto,
   FarmSitesListDto,
+  GapRecordsListDto,
   OrganizationsListDto,
   PlotsListDto,
   ReviewQueueListDto
@@ -23,6 +25,14 @@ export const SmartFarmApi = {
   },
   cropCycles: {
     list: () => apiRequest<CropCyclesListDto>("api/v1/crop-cycles")
+  },
+  gapRecords: {
+    list: (params: {
+      farmSiteId?: string;
+      plotId?: string;
+      cropCycleId?: string;
+      status?: string;
+    } = {}) => apiRequest<GapRecordsListDto>("api/v1/gap-records", { query: params })
   },
   evidence: {
     list: (params: { gapRecordId?: string; reviewStatus?: string } = {}) =>
@@ -55,7 +65,12 @@ export const SmartFarmApi = {
   },
   documents: {
     create: (body: DocumentCreateRequest) =>
-      apiRequest<DocumentCreateResponse>("api/v1/documents", { method: "POST", body })
+      apiRequest<DocumentCreateResponse>("api/v1/documents", { method: "POST", body }),
+    get: (id: string) => apiRequest<DocumentItemResponse>(`api/v1/documents/${id}`),
+    finalize: (id: string) =>
+      apiRequest<DocumentItemResponse>(`api/v1/documents/${id}/finalize`, {
+        method: "POST"
+      })
   }
 };
 
