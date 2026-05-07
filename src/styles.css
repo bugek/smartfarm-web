@@ -170,6 +170,8 @@ button {
 
 select,
 input[type="text"],
+input[type="number"],
+input[type="datetime-local"],
 textarea {
   border: 1px solid var(--slate-200);
   background: white;
@@ -523,9 +525,44 @@ textarea:focus {
   gap: 12px;
 }
 
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.form-grid label,
+.file-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.wide-field {
+  grid-column: span 3;
+}
+
+.file-row {
+  border: 1px solid var(--slate-200);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--slate-100);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+
 @media (max-width: 720px) {
   .form-row {
     grid-template-columns: 1fr;
+  }
+  .form-grid,
+  .file-row {
+    grid-template-columns: 1fr;
+  }
+  .wide-field {
+    grid-column: span 1;
   }
   .check-item {
     grid-template-columns: 1fr;
@@ -631,6 +668,23 @@ textarea:focus {
 
 .evidence-actions {
   display: flex;
+  gap: 6px;
+}
+
+.chemical-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.chemical-item {
+  border: 1px solid var(--slate-200);
+  border-radius: 10px;
+  padding: 14px;
+  background: white;
+  display: grid;
   gap: 6px;
 }
 

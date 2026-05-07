@@ -23,6 +23,7 @@ export interface Farm {
 export interface Plot {
   id: ID;
   farmId: ID;
+  cropCycleId?: ID;
   name: string;
   crop: string;
   hectares: number;
@@ -56,6 +57,52 @@ export interface Evidence {
   capturedAt: string;
   state: EvidenceUploadState;
   note?: string;
+  errorMessage?: string;
+}
+
+export type ChemicalProductStatus = "active" | "inactive";
+
+export interface ChemicalProduct {
+  id: ID;
+  name: string;
+  registrationNumber?: string;
+  activeIngredient?: string;
+  targetCrop?: string;
+  labelRateText?: string;
+  preHarvestIntervalDays?: number;
+  status: ChemicalProductStatus;
+}
+
+export interface FarmWorker {
+  id: ID;
+  farmId?: ID;
+  fullName: string;
+  roleTitle?: string;
+  isActive: boolean;
+}
+
+export type ChemicalUseRecordState = "queued" | "uploading" | "uploaded" | "failed";
+
+export interface ChemicalUseRecord {
+  id: ID;
+  farmId: ID;
+  plotId: ID;
+  cropCycleId?: ID;
+  productId: ID;
+  productName: string;
+  workerId: ID;
+  workerName: string;
+  appliedAt: string;
+  quantity: number;
+  quantityUnit: string;
+  reason: string;
+  applicationMethod?: string;
+  targetPest?: string;
+  weatherNotes?: string;
+  evidenceDocumentId?: ID;
+  evidenceFilename?: string;
+  notes?: string;
+  state: ChemicalUseRecordState;
   errorMessage?: string;
 }
 

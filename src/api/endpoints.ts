@@ -11,10 +11,15 @@ import type {
   EvidenceListDto,
   FarmSitesListDto,
   GapRecordsListDto,
+  HazardousSubstanceProductsListDto,
+  HazardousSubstanceUseEventCreateRequest,
+  HazardousSubstanceUseEventItemResponse,
+  HazardousSubstanceUseEventsListDto,
   OrganizationsListDto,
   PlotsListDto,
   ReviewThreadItemResponse,
-  ReviewQueueListDto
+  ReviewQueueListDto,
+  WorkersListDto
 } from "./dto";
 
 export const SmartFarmApi = {
@@ -38,6 +43,10 @@ export const SmartFarmApi = {
   },
   cropCycles: {
     list: () => apiRequest<CropCyclesListDto>("api/v1/crop-cycles")
+  },
+  workers: {
+    list: (params: { farmSiteId?: string; isActive?: "true" | "false" } = {}) =>
+      apiRequest<WorkersListDto>("api/v1/workers", { query: params })
   },
   gapRecords: {
     list: (params: {
@@ -108,6 +117,34 @@ export const SmartFarmApi = {
         method: "POST",
         signal
       })
+  },
+  hazardousSubstances: {
+    products: {
+      list: (params: { status?: "active" | "inactive"; q?: string } = {}) =>
+        apiRequest<HazardousSubstanceProductsListDto>("api/v1/hazardous-substances/products", {
+          query: params
+        })
+    },
+    useEvents: {
+      list: (params: {
+        farmSiteId?: string;
+        plotId?: string;
+        cropCycleId?: string;
+        productId?: string;
+        workerId?: string;
+        from?: string;
+        to?: string;
+      } = {}) =>
+        apiRequest<HazardousSubstanceUseEventsListDto>(
+          "api/v1/hazardous-substances/use-events",
+          { query: params }
+        ),
+      create: (body: HazardousSubstanceUseEventCreateRequest, signal?: AbortSignal) =>
+        apiRequest<HazardousSubstanceUseEventItemResponse>(
+          "api/v1/hazardous-substances/use-events",
+          { method: "POST", body, signal }
+        )
+    }
   }
 };
 

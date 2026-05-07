@@ -1,6 +1,6 @@
 import type { ID } from "./types";
 
-export type ScreenKey = "checklist" | "evidence" | "review";
+export type ScreenKey = "checklist" | "evidence" | "chemicals" | "review";
 
 export interface AppRoute {
   screen: ScreenKey;
@@ -8,12 +8,14 @@ export interface AppRoute {
   farmId?: ID;
   plotId?: ID;
   gapItemId?: ID;
+  chemicalUseId?: ID;
   reviewId?: ID;
 }
 
 const SCREEN_PATHS: Record<ScreenKey, string> = {
   checklist: "/checklist",
   evidence: "/evidence",
+  chemicals: "/chemicals",
   review: "/review"
 };
 
@@ -39,6 +41,7 @@ export function parseRoute(hash: string): AppRoute {
     farmId: readId(params, "farm"),
     plotId: readId(params, "plot"),
     gapItemId: readId(params, "gapItem"),
+    chemicalUseId: readId(params, "chemicalUse"),
     reviewId: readId(params, "review")
   };
 }
@@ -50,6 +53,7 @@ export function buildRouteHash(route: AppRoute): string {
   if (route.farmId) params.set("farm", route.farmId);
   if (route.plotId) params.set("plot", route.plotId);
   if (route.gapItemId) params.set("gapItem", route.gapItemId);
+  if (route.chemicalUseId) params.set("chemicalUse", route.chemicalUseId);
   if (route.reviewId) params.set("review", route.reviewId);
 
   const query = params.toString();
