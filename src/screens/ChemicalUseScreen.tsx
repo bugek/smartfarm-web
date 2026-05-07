@@ -27,6 +27,10 @@ export function ChemicalUseScreen({ state }: Props) {
   const [appliedAt, setAppliedAt] = useState(() => toLocalInputValue(new Date().toISOString()));
   const [quantity, setQuantity] = useState("");
   const [quantityUnit, setQuantityUnit] = useState("ml");
+  const [doseRate, setDoseRate] = useState("");
+  const [doseUnit, setDoseUnit] = useState("ml/rai");
+  const [treatedArea, setTreatedArea] = useState("");
+  const [areaUnit, setAreaUnit] = useState("rai");
   const [reason, setReason] = useState("");
   const [applicationMethod, setApplicationMethod] = useState("");
   const [targetPest, setTargetPest] = useState("");
@@ -48,6 +52,10 @@ export function ChemicalUseScreen({ state }: Props) {
     !appliedAt ||
     !quantity ||
     !quantityUnit.trim() ||
+    !doseRate ||
+    !doseUnit.trim() ||
+    !treatedArea ||
+    !areaUnit.trim() ||
     !reason.trim() ||
     !file;
 
@@ -57,6 +65,10 @@ export function ChemicalUseScreen({ state }: Props) {
     setAppliedAt(toLocalInputValue(new Date().toISOString()));
     setQuantity("");
     setQuantityUnit("ml");
+    setDoseRate("");
+    setDoseUnit("ml/rai");
+    setTreatedArea("");
+    setAreaUnit("rai");
     setReason("");
     setApplicationMethod("");
     setTargetPest("");
@@ -75,7 +87,19 @@ export function ChemicalUseScreen({ state }: Props) {
 
     const parsedQuantity = Number(quantity);
     if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0) {
-      setFormError("Quantity must be a positive number.");
+      setFormError("Total product amount must be a positive number.");
+      return;
+    }
+
+    const parsedDoseRate = Number(doseRate);
+    if (!Number.isFinite(parsedDoseRate) || parsedDoseRate <= 0) {
+      setFormError("Dose must be a positive number.");
+      return;
+    }
+
+    const parsedTreatedArea = Number(treatedArea);
+    if (!Number.isFinite(parsedTreatedArea) || parsedTreatedArea <= 0) {
+      setFormError("Treated area must be a positive number.");
       return;
     }
 
@@ -91,7 +115,14 @@ export function ChemicalUseScreen({ state }: Props) {
       applicationMethod: applicationMethod.trim() || undefined,
       targetPest: targetPest.trim() || undefined,
       weatherNotes: weatherNotes.trim() || undefined,
-      notes: notes.trim() || undefined,
+      notes:
+        [
+          `Dose: ${parsedDoseRate} ${doseUnit.trim()}`,
+          `Treated area: ${parsedTreatedArea} ${areaUnit.trim()}`,
+          notes.trim()
+        ]
+          .filter(Boolean)
+          .join("\n") || undefined,
       file
     });
     resetForm();
@@ -103,8 +134,8 @@ export function ChemicalUseScreen({ state }: Props) {
         <div>
           <h2>Chemical use records</h2>
           <p className="muted">
-            Capture GAP 3 use events with product, operator, dose, reason, and a traceable evidence
-            document for the selected plot and crop cycle.
+            Capture GAP 3 use events from the hazardous substance checklist action with product,
+            operator, dose, treated area, total amount, and record-level field evidence.
           </p>
         </div>
       </header>
@@ -169,7 +200,7 @@ export function ChemicalUseScreen({ state }: Props) {
           </label>
 
           <label>
-            <span className="label">Quantity</span>
+            <span className="label">Total product amount</span>
             <input
               type="number"
               min="0"
@@ -181,13 +212,61 @@ export function ChemicalUseScreen({ state }: Props) {
           </label>
 
           <label>
-            <span className="label">Unit</span>
-            <input
-              type="text"
+            <span className="label">Amount unit</span>
+            <select
               value={quantityUnit}
               onChange={(event) => setQuantityUnit(event.target.value)}
-              placeholder="ml, g, L, kg"
+            >
+              <option value="ml">ml</option>
+              <option value="L">L</option>
+              <option value="g">g</option>
+              <option value="kg">kg</option>
+            </select>
+          </label>
+
+          <label>
+            <span className="label">Dose</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={doseRate}
+              onChange={(event) => setDoseRate(event.target.value)}
+              placeholder="e.g. 10"
             />
+          </label>
+
+          <label>
+            <span className="label">Dose unit</span>
+            <select value={doseUnit} onChange={(event) => setDoseUnit(event.target.value)}>
+              <option value="ml/rai">ml/rai</option>
+              <option value="g/rai">g/rai</option>
+              <option value="L/ha">L/ha</option>
+              <option value="kg/ha">kg/ha</option>
+              <option value="g/20 L water">g/20 L water</option>
+              <option value="ml/20 L water">ml/20 L water</option>
+            </select>
+          </label>
+
+          <label>
+            <span className="label">Treated area</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={treatedArea}
+              onChange={(event) => setTreatedArea(event.target.value)}
+              placeholder="e.g. 1.2"
+            />
+          </label>
+
+          <label>
+            <span className="label">Area unit</span>
+            <select value={areaUnit} onChange={(event) => setAreaUnit(event.target.value)}>
+              <option value="rai">rai</option>
+              <option value="ha">ha</option>
+              <option value="sqm">sqm</option>
+            </select>
           </label>
 
           <label>
@@ -251,14 +330,22 @@ export function ChemicalUseScreen({ state }: Props) {
                 ? ` - PHI: ${selectedProduct.preHarvestIntervalDays} days`
                 : ""}
             </p>
+            <p>
+              Product label evidence:{" "}
+              {selectedProduct.labelRateText
+                ? "label rate available for review"
+                : "missing label proof; attach label evidence before expecting ready status"}
+            </p>
           </div>
         ) : null}
 
         <div className="file-row">
           <div>
-            <span className="label">Evidence document</span>
+            <span className="label">Field application evidence</span>
             <p className="micro muted">
-              {file ? file.name : "Attach spray log, label photo, or operator proof."}
+              {file
+                ? file.name
+                : "Attach spray log, field photo, video, or operator proof for this use event."}
             </p>
           </div>
           <button type="button" className="btn btn-secondary" onClick={() => fileInputRef.current?.click()}>

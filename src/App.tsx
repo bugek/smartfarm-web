@@ -2,6 +2,7 @@ import { LoadingScreen, LoginScreen, NoMembershipScreen } from "./AuthScreens";
 import { AppShell } from "./AppShell";
 import { ChemicalUseScreen } from "./screens/ChemicalUseScreen";
 import { ChecklistScreen } from "./screens/ChecklistScreen";
+import { DashboardScreen } from "./screens/DashboardScreen";
 import { EvidenceScreen } from "./screens/EvidenceScreen";
 import { ReviewScreen } from "./screens/ReviewScreen";
 import { useAuthSession } from "./auth/session";
@@ -51,6 +52,7 @@ function WorkspaceApp({ auth }: { auth: ReturnType<typeof useAuthSession> }) {
     <div className="app">
       <AppShell state={state} />
       <main className="main">
+        {state.screen === "dashboard" ? <DashboardScreen state={state} /> : null}
         {state.screen === "checklist" ? <ChecklistScreen state={state} /> : null}
         {state.screen === "evidence" ? <EvidenceScreen state={state} /> : null}
         {state.screen === "chemicals" ? <ChemicalUseScreen state={state} /> : null}

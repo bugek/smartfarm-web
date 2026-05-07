@@ -32,16 +32,25 @@ export function EvidenceScreen({ state }: Props) {
     filterKind === "all" ? plotEvidence : plotEvidence.filter((item) => item.kind === filterKind);
 
   const plotGapItems = state.gapItems.filter((item) => item.plotId === state.plotId);
+  const selectedGapItem = plotGapItems.find((item) => item.id === state.selectedGapItemId);
+  const selectedGapEvidenceCount = selectedGapItem
+    ? plotEvidence.filter((item) => item.gapItemId === selectedGapItem.id).length
+    : 0;
   const uploadDisabled =
     liveUploadNeedsLinkedGapItem && (!state.selectedGapItemId || plotGapItems.length === 0);
 
   const handleFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
     Array.from(files).forEach((file) => {
+      const kind = inferKind(file.name);
+      if (!isSupportedEvidence(file, kind)) {
+        window.alert("Unsupported evidence type. Upload an image, video, or document file.");
+        return;
+      }
       state.addEvidence({
         plotId: state.plotId,
         gapItemId: state.selectedGapItemId || undefined,
-        kind: inferKind(file.name),
+        kind,
         filename: file.name,
         sizeBytes: file.size,
         note: note || undefined,
@@ -58,14 +67,40 @@ export function EvidenceScreen({ state }: Props) {
         <div>
           <h2>Evidence upload</h2>
           <p className="muted">
-            Attach photos, videos, and documents to GAP items. Files stay tied to the plot and
-            current crop cycle so advisors can verify them in context.
+            Attach images, videos, and documents to the current GAP record. Record-level evidence
+            is what satisfies required proof for review.
           </p>
         </div>
       </header>
 
       <section className="panel">
         <h3>Upload new evidence</h3>
+        {selectedGapItem ? (
+          <div className="status-band compact">
+            <div>
+              <span className="label">Current record</span>
+              <strong>
+                {selectedGapItem.code} - {selectedGapItem.title}
+              </strong>
+            </div>
+            <div>
+              <span className="label">Required proof status</span>
+              <strong>
+                {selectedGapEvidenceCount > 0
+                  ? `${selectedGapEvidenceCount} record-level file${selectedGapEvidenceCount === 1 ? "" : "s"} attached`
+                  : "Attach record-level evidence before review"}
+              </strong>
+            </div>
+          </div>
+        ) : (
+          <div className="screen-banner screen-banner-warning">
+            <strong>Select a GAP item first.</strong>
+            <p>
+              General cycle evidence can support context, but it does not satisfy required record
+              proof until it is linked to a GAP record.
+            </p>
+          </div>
+        )}
         {!state.useMocks && state.dataSources.gapItems.note ? (
           <div className="screen-banner screen-banner-warning">
             <strong>Live checklist is now API-backed.</strong>
@@ -133,7 +168,7 @@ export function EvidenceScreen({ state }: Props) {
           }}
         >
           <p>
-            <strong>Drag and drop</strong> images, videos, or documents here, or
+            <strong>Drag and drop</strong> record images, videos, or documents here, or
           </p>
           <button
             type="button"
@@ -152,7 +187,7 @@ export function EvidenceScreen({ state }: Props) {
             onChange={(event) => handleFiles(event.target.files)}
           />
           <p className="micro muted">
-            Accepts JPG, PNG, MP4, MOV, PDF, DOC, CSV, XLSX. Max 100 MB each.
+            Shows upload progress, retry on failure, and keeps submitted evidence traceable.
           </p>
         </div>
       </section>
@@ -178,7 +213,10 @@ export function EvidenceScreen({ state }: Props) {
         {state.status.evidence.isLoading && visible.length === 0 ? (
           <div className="empty">Loading evidence from SmartFarm API...</div>
         ) : visible.length === 0 ? (
-          <div className="empty">No evidence yet. Drop a file above to get started.</div>
+          <div className="empty">
+            No evidence yet. Select a GAP item, then attach a field photo, product label, video, or
+            document as record-level proof.
+          </div>
         ) : (
           <ul className="evidence-list">
             {visible.map((item) => {
@@ -200,7 +238,7 @@ export function EvidenceScreen({ state }: Props) {
                     </div>
                     <p className="micro muted">
                       {formatBytes(item.sizeBytes)} - captured {formatDate(item.capturedAt)}
-                      {linked ? ` - linked to ${linked.code}` : " - unlinked"}
+                      {linked ? ` - record proof for ${linked.code}` : " - cycle context only"}
                     </p>
                     {item.note ? <p className="note">{item.note}</p> : null}
                     {item.errorMessage ? <p className="note">{item.errorMessage}</p> : null}
@@ -240,4 +278,10 @@ export function EvidenceScreen({ state }: Props) {
       </section>
     </div>
   );
+}
+
+function isSupportedEvidence(file: File, kind: EvidenceKind): boolean {
+  if (kind === "image") return file.type.startsWith("image/") || /\.(jpe?g|png|webp|heic|gif)$/i.test(file.name);
+  if (kind === "video") return file.type.startsWith("video/") || /\.(mp4|mov|webm|mkv|avi)$/i.test(file.name);
+  return /\.(pdf|docx?|csv|xlsx?|txt)$/i.test(file.name);
 }
