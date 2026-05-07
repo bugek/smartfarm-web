@@ -1,21 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AuthenticatedSession } from "./auth/session";
 import {
+  adaptChemicalProduct,
+  adaptChemicalUseRecord,
   adaptEvidence,
   adaptFarmSite,
   adaptGapRecord,
   adaptGapRecordReview,
   adaptOrganization,
-  adaptPlot
+  adaptPlot,
+  adaptWorker
 } from "./api/adapters";
 import { ApiError } from "./api/client";
 import { apiConfig } from "./api/config";
 import { SmartFarmApi } from "./api/endpoints";
-import { uploadEvidenceWithDocument } from "./api/uploads";
+import { uploadEvidenceWithDocument, uploadReadyDocument } from "./api/uploads";
 import { useResource } from "./api/useResource";
 import { buildRouteHash, parseRoute, type AppRoute, type ScreenKey } from "./navigation";
 import {
   evidence as initialEvidence,
+  chemicalProducts as initialChemicalProducts,
+  chemicalUseRecords as initialChemicalUseRecords,
+  farmWorkers as initialFarmWorkers,
   farms as mockFarms,
   gapItems as initialGapItems,
   organizations as mockOrganizations,
@@ -23,8 +29,11 @@ import {
   reviews as initialReviews
 } from "./mock-data";
 import type {
+  ChemicalProduct,
+  ChemicalUseRecord,
   Evidence,
   EvidenceKind,
+  FarmWorker,
   Farm,
   GapChecklistItem,
   GapItemStatus,
@@ -54,6 +63,22 @@ interface EvidenceUploadInput {
   filename: string;
   sizeBytes: number;
   note?: string;
+  file: File;
+}
+
+interface ChemicalUseRecordInput {
+  plotId: ID;
+  cropCycleId?: ID;
+  productId: ID;
+  workerId: ID;
+  appliedAt: string;
+  quantity: number;
+  quantityUnit: string;
+  reason: string;
+  applicationMethod?: string;
+  targetPest?: string;
+  weatherNotes?: string;
+  notes?: string;
   file: File;
 }
 
@@ -91,6 +116,9 @@ export interface AppState {
   gapItems: GapChecklistItem[];
   evidence: Evidence[];
   reviews: Review[];
+  chemicalProducts: ChemicalProduct[];
+  farmWorkers: FarmWorker[];
+  chemicalUseRecords: ChemicalUseRecord[];
 
   status: {
     organizations: AsyncStatus;
@@ -100,6 +128,9 @@ export interface AppState {
     evidence: AsyncStatus;
     reviews: AsyncStatus;
     gapItems: AsyncStatus;
+    chemicalProducts: AsyncStatus;
+    farmWorkers: AsyncStatus;
+    chemicalUseRecords: AsyncStatus;
   };
   dataSources: {
     gapItems: DataSourceState;
@@ -115,6 +146,7 @@ export interface AppState {
   retryEvidence: (evidenceId: ID) => void;
   addReviewComment: (reviewId: ID, body: string) => void;
   setReviewStatus: (reviewId: ID, status: ReviewStatus) => void;
+  addChemicalUseRecord: (input: ChemicalUseRecordInput) => ChemicalUseRecord;
 }
 
 interface UseAppStateOptions {
@@ -184,6 +216,9 @@ export function useAppState({
   const pendingUploadsRef = useRef(new Map<ID, EvidenceUploadInput>());
   const uploadControllersRef = useRef(new Map<ID, AbortController>());
   const mockUploadTimeoutsRef = useRef(new Map<ID, number>());
+  const pendingChemicalRecordsRef = useRef(new Map<ID, ChemicalUseRecordInput>());
+  const chemicalRecordControllersRef = useRef(new Map<ID, AbortController>());
+  const mockChemicalTimeoutsRef = useRef(new Map<ID, number>());
 
   const orgsRes = useResource(
     () => SmartFarmApi.organizations.list(),
@@ -212,6 +247,21 @@ export function useAppState({
   );
   const evidenceRes = useResource(
     () => SmartFarmApi.evidence.list(),
+    [useMocks],
+    { enabled: !useMocks }
+  );
+  const chemicalProductsRes = useResource(
+    () => SmartFarmApi.hazardousSubstances.products.list({ status: "active" }),
+    [useMocks],
+    { enabled: !useMocks }
+  );
+  const workersRes = useResource(
+    () => SmartFarmApi.workers.list({ isActive: "true" }),
+    [useMocks],
+    { enabled: !useMocks }
+  );
+  const chemicalUseEventsRes = useResource(
+    () => SmartFarmApi.hazardousSubstances.useEvents.list(),
     [useMocks],
     { enabled: !useMocks }
   );
@@ -244,6 +294,15 @@ export function useAppState({
   const [localGapItemOverrides, setLocalGapItemOverrides] = useState<GapChecklistItem[]>([]);
   const [localReviewOverrides, setLocalReviewOverrides] = useState<Review[]>([]);
   const [localEvidenceOverrides, setLocalEvidenceOverrides] = useState<Evidence[]>([]);
+  const [localChemicalUseOverrides, setLocalChemicalUseOverrides] = useState<ChemicalUseRecord[]>([]);
+  const [organizationId, setOrganizationIdState] = useState<ID>(initialRoute.organizationId ?? "");
+  const [farmId, setFarmIdState] = useState<ID>(initialRoute.farmId ?? "");
+  const [plotId, setPlotIdState] = useState<ID>(initialRoute.plotId ?? "");
+  const [screen, setScreenState] = useState<ScreenKey>(initialRoute.screen);
+  const [selectedGapItemId, setSelectedGapItemIdState] = useState<ID>(
+    initialRoute.gapItemId ?? ""
+  );
+  const [selectedReviewId, setSelectedReviewIdState] = useState<ID>(initialRoute.reviewId ?? "");
 
   const gapItems: GapChecklistItem[] = useMemo(() => {
     if (useMocks) return mockGapItems;
@@ -279,14 +338,31 @@ export function useAppState({
     return mergeById(remote, localReviewOverrides);
   }, [useMocks, gapRecordsRes.data, localReviewOverrides]);
 
-  const [organizationId, setOrganizationIdState] = useState<ID>(initialRoute.organizationId ?? "");
-  const [farmId, setFarmIdState] = useState<ID>(initialRoute.farmId ?? "");
-  const [plotId, setPlotIdState] = useState<ID>(initialRoute.plotId ?? "");
-  const [screen, setScreenState] = useState<ScreenKey>(initialRoute.screen);
-  const [selectedGapItemId, setSelectedGapItemIdState] = useState<ID>(
-    initialRoute.gapItemId ?? ""
-  );
-  const [selectedReviewId, setSelectedReviewIdState] = useState<ID>(initialRoute.reviewId ?? "");
+  const chemicalProducts: ChemicalProduct[] = useMemo(() => {
+    if (useMocks) return initialChemicalProducts;
+    return (chemicalProductsRes.data?.items ?? []).map(adaptChemicalProduct);
+  }, [useMocks, chemicalProductsRes.data]);
+
+  const farmWorkers: FarmWorker[] = useMemo(() => {
+    const activeFarmId = farmId;
+    const base = useMocks
+      ? initialFarmWorkers
+      : (workersRes.data?.items ?? []).map(adaptWorker);
+    return base.filter((worker) => !worker.farmId || !activeFarmId || worker.farmId === activeFarmId);
+  }, [useMocks, workersRes.data, farmId]);
+
+  const chemicalUseRecords: ChemicalUseRecord[] = useMemo(() => {
+    const remote = useMocks
+      ? initialChemicalUseRecords
+      : (chemicalUseEventsRes.data?.items ?? []).map(adaptChemicalUseRecord);
+    const plotRecords = remote.filter(
+      (record) => record.plotId === plotId || (!useMocks && record.plotId === "")
+    );
+    return [
+      ...localChemicalUseOverrides,
+      ...plotRecords.filter((item) => !localChemicalUseOverrides.some((local) => local.id === item.id))
+    ];
+  }, [useMocks, chemicalUseEventsRes.data, localChemicalUseOverrides, plotId]);
 
   const buildCurrentRoute = useCallback(
     (overrides: Partial<AppRoute> = {}): AppRoute => ({
@@ -832,6 +908,161 @@ export function useAppState({
     [localEvidenceOverrides, setLocalEvidenceState, startEvidenceUpload]
   );
 
+  const setLocalChemicalRecordState = useCallback(
+    (recordId: ID, updater: (current: ChemicalUseRecord) => ChemicalUseRecord) => {
+      setLocalChemicalUseOverrides((prev) =>
+        prev.map((item) => (item.id === recordId ? updater(item) : item))
+      );
+    },
+    []
+  );
+
+  const runMockChemicalRecordUpload = useCallback(
+    (recordId: ID) => {
+      const timeoutId = window.setTimeout(() => {
+        mockChemicalTimeoutsRef.current.delete(recordId);
+        pendingChemicalRecordsRef.current.delete(recordId);
+        setLocalChemicalRecordState(recordId, (item) => ({
+          ...item,
+          state: "uploaded",
+          errorMessage: undefined
+        }));
+      }, 1200);
+      mockChemicalTimeoutsRef.current.set(recordId, timeoutId);
+    },
+    [setLocalChemicalRecordState]
+  );
+
+  const runLiveChemicalRecordUpload = useCallback(
+    async (recordId: ID, input: ChemicalUseRecordInput, signal: AbortSignal) => {
+      const readyDocument = await uploadReadyDocument(
+        {
+          file: input.file,
+          document: {
+            fileName: input.file.name,
+            kind: inferKind(input.file.name),
+            contentType: input.file.type.trim() || undefined,
+            declaredSize: input.file.size,
+            metadata: {
+              source: "smartfarm-web",
+              recordType: "hazardous_substance_use_event",
+              plotId: input.plotId,
+              cropCycleId: input.cropCycleId
+            }
+          }
+        },
+        { signal }
+      );
+
+      const response = await SmartFarmApi.hazardousSubstances.useEvents.create(
+        {
+          plotId: input.plotId,
+          cropCycleId: input.cropCycleId ?? null,
+          productId: input.productId,
+          workerId: input.workerId,
+          appliedAt: input.appliedAt,
+          quantity: input.quantity,
+          quantityUnit: input.quantityUnit,
+          reason: input.reason,
+          applicationMethod: input.applicationMethod ?? null,
+          targetPest: input.targetPest ?? null,
+          weatherNotes: input.weatherNotes ?? null,
+          evidenceDocumentId: readyDocument.id,
+          notes: input.notes ?? null
+        },
+        signal
+      );
+
+      const created = adaptChemicalUseRecord(response.item);
+      setLocalChemicalUseOverrides((prev) =>
+        upsertById(
+          prev.filter((item) => item.id !== recordId),
+          created
+        )
+      );
+      pendingChemicalRecordsRef.current.delete(recordId);
+
+      const refresh = await Promise.allSettled([chemicalUseEventsRes.reload()]);
+      if (refresh.every((result) => result.status === "fulfilled")) {
+        setLocalChemicalUseOverrides((prev) => prev.filter((item) => item.id !== created.id));
+      }
+    },
+    [chemicalUseEventsRes]
+  );
+
+  const startChemicalRecordUpload = useCallback(
+    (recordId: ID, input: ChemicalUseRecordInput) => {
+      const run = async () => {
+        try {
+          if (useMocks) {
+            runMockChemicalRecordUpload(recordId);
+            return;
+          }
+
+          const controller = new AbortController();
+          chemicalRecordControllersRef.current.set(recordId, controller);
+          await runLiveChemicalRecordUpload(recordId, input, controller.signal);
+        } catch (cause) {
+          const message = isAbortError(cause)
+            ? "Chemical use record upload cancelled."
+            : cause instanceof Error
+              ? cause.message
+              : "Chemical use record failed.";
+          setLocalChemicalRecordState(recordId, (item) => ({
+            ...item,
+            state: "failed",
+            errorMessage: message
+          }));
+        } finally {
+          chemicalRecordControllersRef.current.delete(recordId);
+        }
+      };
+
+      void run();
+    },
+    [
+      runLiveChemicalRecordUpload,
+      runMockChemicalRecordUpload,
+      setLocalChemicalRecordState,
+      useMocks
+    ]
+  );
+
+  const addChemicalUseRecord = useCallback<AppState["addChemicalUseRecord"]>(
+    (input) => {
+      const product = chemicalProducts.find((item) => item.id === input.productId);
+      const worker = farmWorkers.find((item) => item.id === input.workerId);
+      const activePlot = plots.find((item) => item.id === input.plotId);
+      const id = `chem-use-local-${Math.random().toString(36).slice(2, 9)}`;
+      const created: ChemicalUseRecord = {
+        id,
+        farmId: activePlot?.farmId ?? farmId,
+        plotId: input.plotId,
+        cropCycleId: input.cropCycleId,
+        productId: input.productId,
+        productName: product?.name ?? "Selected product",
+        workerId: input.workerId,
+        workerName: worker?.fullName ?? "Selected operator",
+        appliedAt: input.appliedAt,
+        quantity: input.quantity,
+        quantityUnit: input.quantityUnit,
+        reason: input.reason,
+        applicationMethod: input.applicationMethod,
+        targetPest: input.targetPest,
+        weatherNotes: input.weatherNotes,
+        notes: input.notes,
+        evidenceFilename: input.file.name,
+        state: "uploading"
+      };
+
+      pendingChemicalRecordsRef.current.set(id, input);
+      setLocalChemicalUseOverrides((prev) => [created, ...prev]);
+      startChemicalRecordUpload(id, input);
+      return created;
+    },
+    [chemicalProducts, farmWorkers, farmId, plots, startChemicalRecordUpload]
+  );
+
   const addReviewComment = useCallback(
     (reviewId: ID, body: string) => {
       const comment: ReviewComment = {
@@ -883,9 +1114,23 @@ export function useAppState({
       plotsRes.reload(),
       cropCyclesRes.reload(),
       gapRecordsRes.reload(),
-      evidenceRes.reload()
+      evidenceRes.reload(),
+      chemicalProductsRes.reload(),
+      workersRes.reload(),
+      chemicalUseEventsRes.reload()
     ]);
-  }, [useMocks, orgsRes, farmSitesRes, plotsRes, cropCyclesRes, gapRecordsRes, evidenceRes]);
+  }, [
+    useMocks,
+    orgsRes,
+    farmSitesRes,
+    plotsRes,
+    cropCyclesRes,
+    gapRecordsRes,
+    evidenceRes,
+    chemicalProductsRes,
+    workersRes,
+    chemicalUseEventsRes
+  ]);
 
   const refreshReviews = useCallback(async () => {
     if (useMocks) return;
@@ -947,6 +1192,9 @@ export function useAppState({
       gapItems,
       evidence,
       reviews,
+      chemicalProducts,
+      farmWorkers,
+      chemicalUseRecords,
       status: {
         organizations: useMocks ? EMPTY_STATUS : statusFromError(orgsRes.isLoading, orgsRes.error),
         farms: useMocks ? EMPTY_STATUS : statusFromError(farmSitesRes.isLoading, farmSitesRes.error),
@@ -954,7 +1202,14 @@ export function useAppState({
         cropCycles: useMocks ? EMPTY_STATUS : statusFromError(cropCyclesRes.isLoading, cropCyclesRes.error),
         evidence: useMocks ? EMPTY_STATUS : statusFromError(evidenceRes.isLoading, evidenceRes.error),
         reviews: useMocks ? EMPTY_STATUS : statusFromError(gapRecordsRes.isLoading, gapRecordsRes.error),
-        gapItems: useMocks ? EMPTY_STATUS : statusFromError(gapRecordsRes.isLoading, gapRecordsRes.error)
+        gapItems: useMocks ? EMPTY_STATUS : statusFromError(gapRecordsRes.isLoading, gapRecordsRes.error),
+        chemicalProducts: useMocks
+          ? EMPTY_STATUS
+          : statusFromError(chemicalProductsRes.isLoading, chemicalProductsRes.error),
+        farmWorkers: useMocks ? EMPTY_STATUS : statusFromError(workersRes.isLoading, workersRes.error),
+        chemicalUseRecords: useMocks
+          ? EMPTY_STATUS
+          : statusFromError(chemicalUseEventsRes.isLoading, chemicalUseEventsRes.error)
       },
       dataSources,
       refreshAll,
@@ -964,7 +1219,8 @@ export function useAppState({
       cancelEvidence,
       retryEvidence,
       addReviewComment,
-      setReviewStatus
+      setReviewStatus,
+      addChemicalUseRecord
     }),
     [
       useMocks,
@@ -993,6 +1249,9 @@ export function useAppState({
       gapItems,
       evidence,
       reviews,
+      chemicalProducts,
+      farmWorkers,
+      chemicalUseRecords,
       orgsRes.isLoading,
       orgsRes.error,
       farmSitesRes.isLoading,
@@ -1005,6 +1264,12 @@ export function useAppState({
       evidenceRes.error,
       gapRecordsRes.isLoading,
       gapRecordsRes.error,
+      chemicalProductsRes.isLoading,
+      chemicalProductsRes.error,
+      workersRes.isLoading,
+      workersRes.error,
+      chemicalUseEventsRes.isLoading,
+      chemicalUseEventsRes.error,
       dataSources,
       refreshAll,
       refreshReviews,
@@ -1013,7 +1278,8 @@ export function useAppState({
       cancelEvidence,
       retryEvidence,
       addReviewComment,
-      setReviewStatus
+      setReviewStatus,
+      addChemicalUseRecord
     ]
   );
 }

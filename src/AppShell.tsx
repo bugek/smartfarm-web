@@ -10,6 +10,7 @@ interface Props {
 const NAV: { key: ScreenKey; label: string; helper: string }[] = [
   { key: "checklist", label: "GAP checklist", helper: "Farmer record entry" },
   { key: "evidence", label: "Evidence", helper: "Upload photos, video, docs" },
+  { key: "chemicals", label: "Chemical use", helper: "GAP 3 spray log" },
   { key: "review", label: "Expert review", helper: "Advisor decisions" }
 ];
 
@@ -17,16 +18,19 @@ const ROLE_HINTS: Record<AppState["viewer"]["role"], Record<ScreenKey, string>> 
   farmer: {
     checklist: "Capture field records and keep evidence complete before expert review.",
     evidence: "Upload clear proof tied to the right GAP item so review stays fast and traceable.",
+    chemicals: "Record chemical applications with operator, product, dose, timing, and proof.",
     review: "Track reviewer feedback and close requested changes before the audit window."
   },
   advisor: {
     checklist: "Use the checklist to spot incomplete controls before you start review decisions.",
     evidence: "Check evidence quality, timing, and linkage before you clear a submission.",
+    chemicals: "Check product, dose, operator, and evidence before accepting GAP 3 records.",
     review: "Leave concrete, audit-ready comments so farmers know exactly what to fix."
   },
   compliance: {
     checklist: "Monitor control completion across the organization and surface audit gaps early.",
     evidence: "Check whether each plot has enough traceable evidence to support readiness.",
+    chemicals: "Monitor hazardous substance use records for traceable GAP 3 audit readiness.",
     review: "Use review outcomes to escalate weak evidence and keep the audit trail consistent."
   }
 };
@@ -51,6 +55,9 @@ export function AppShell({ state }: Props) {
     state.status.plots.error ??
     state.status.cropCycles.error ??
     state.status.evidence.error ??
+    state.status.chemicalProducts.error ??
+    state.status.farmWorkers.error ??
+    state.status.chemicalUseRecords.error ??
     state.status.reviews.error;
 
   useEffect(() => {

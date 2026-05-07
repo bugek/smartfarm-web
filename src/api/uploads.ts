@@ -193,3 +193,40 @@ export async function uploadEvidenceWithDocument(
     evidence: evidence.item
   };
 }
+
+export async function uploadReadyDocument(
+  input: {
+    file: File;
+    document: DocumentCreateRequest;
+  },
+  options: Pick<UploadFlowOptions, "signal" | "timeoutMs" | "pollIntervalMs" | "onStageChange"> = {}
+): Promise<DocumentDto> {
+  const { signal, onStageChange } = options;
+  const contentType = input.file.type.trim() || input.document.contentType || undefined;
+
+  throwIfAborted(signal);
+  onStageChange?.("creating_document");
+  const createdDocument = await SmartFarmApi.documents.create(
+    {
+      ...input.document,
+      contentType
+    },
+    signal
+  );
+
+  throwIfAborted(signal);
+  onStageChange?.("uploading_blob");
+  await uploadDocumentBlob(createdDocument.upload.url, input.file, contentType, signal);
+
+  throwIfAborted(signal);
+  onStageChange?.("finalizing_document");
+  await SmartFarmApi.documents.finalize(createdDocument.item.id, signal);
+
+  throwIfAborted(signal);
+  onStageChange?.("waiting_for_document");
+  return waitForDocumentReady(createdDocument.item.id, {
+    timeoutMs: options.timeoutMs,
+    pollIntervalMs: options.pollIntervalMs,
+    signal
+  });
+}

@@ -1,6 +1,9 @@
 import type {
+  ChemicalProduct,
+  ChemicalUseRecord,
   Evidence,
   Farm,
+  FarmWorker,
   GapChecklistItem,
   Organization,
   Plot,
@@ -35,6 +38,7 @@ export const plots: Plot[] = [
   {
     id: "plot-001",
     farmId: "farm-001",
+    cropCycleId: "cycle-001",
     name: "Plot A1",
     crop: "Tomato",
     hectares: 1.2,
@@ -43,6 +47,7 @@ export const plots: Plot[] = [
   {
     id: "plot-002",
     farmId: "farm-001",
+    cropCycleId: "cycle-002",
     name: "Plot A2",
     crop: "Lettuce",
     hectares: 0.8,
@@ -51,6 +56,7 @@ export const plots: Plot[] = [
   {
     id: "plot-003",
     farmId: "farm-002",
+    cropCycleId: "cycle-003",
     name: "Plot B1",
     crop: "Strawberry",
     hectares: 0.5,
@@ -59,6 +65,7 @@ export const plots: Plot[] = [
   {
     id: "plot-004",
     farmId: "farm-003",
+    cropCycleId: "cycle-004",
     name: "Plot N1",
     crop: "Coffee",
     hectares: 3.4,
@@ -187,6 +194,70 @@ export const evidence: Evidence[] = [
     sizeBytes: 38_400_000,
     capturedAt: "2026-05-02T07:45:00Z",
     state: "uploading"
+  }
+];
+
+export const chemicalProducts: ChemicalProduct[] = [
+  {
+    id: "chem-001",
+    name: "Copper hydroxide 77% WP",
+    registrationNumber: "THA-AG-3321",
+    activeIngredient: "Copper hydroxide",
+    targetCrop: "Tomato",
+    labelRateText: "30 g / 20 L water",
+    preHarvestIntervalDays: 7,
+    status: "active"
+  },
+  {
+    id: "chem-002",
+    name: "Azoxystrobin 25% SC",
+    registrationNumber: "THA-AG-4490",
+    activeIngredient: "Azoxystrobin",
+    targetCrop: "Tomato",
+    labelRateText: "10 ml / 20 L water",
+    preHarvestIntervalDays: 3,
+    status: "active"
+  }
+];
+
+export const farmWorkers: FarmWorker[] = [
+  {
+    id: "worker-001",
+    farmId: "farm-001",
+    fullName: "Somchai Prasert",
+    roleTitle: "Spray operator",
+    isActive: true
+  },
+  {
+    id: "worker-002",
+    farmId: "farm-001",
+    fullName: "Naree Chaiyo",
+    roleTitle: "Farm supervisor",
+    isActive: true
+  }
+];
+
+export const chemicalUseRecords: ChemicalUseRecord[] = [
+  {
+    id: "chem-use-001",
+    farmId: "farm-001",
+    plotId: "plot-001",
+    cropCycleId: "cycle-001",
+    productId: "chem-001",
+    productName: "Copper hydroxide 77% WP",
+    workerId: "worker-001",
+    workerName: "Somchai Prasert",
+    appliedAt: "2026-04-30T02:20:00Z",
+    quantity: 30,
+    quantityUnit: "g / 20 L",
+    reason: "Preventive spray after fungal risk warning.",
+    applicationMethod: "Knapsack sprayer",
+    targetPest: "Leaf spot",
+    weatherNotes: "Clear morning, low wind.",
+    evidenceDocumentId: "doc-chem-001",
+    evidenceFilename: "spray-log-photo.jpg",
+    notes: "PHI checked before next planned harvest.",
+    state: "uploaded"
   }
 ];
 

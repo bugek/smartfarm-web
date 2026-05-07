@@ -96,6 +96,26 @@ export interface CropCyclesListDto {
   organizationId: string;
 }
 
+export interface WorkerDto {
+  id: string;
+  organizationId: string;
+  farmSiteId: string | null;
+  fullName: string;
+  phone: string | null;
+  roleTitle: string | null;
+  notes: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  farmSite: { id: string; organizationId: string; name: string; code: string | null } | null;
+}
+
+export interface WorkersListDto {
+  items: WorkerDto[];
+  organizationId: string;
+  filters: { farmSiteId: string | null; isActive: boolean | null };
+}
+
 export type ApiEvidenceKind = "image" | "video" | "document";
 export type ApiEvidenceReviewStatus =
   | "pending_review"
@@ -358,4 +378,93 @@ export interface DocumentCreateResponse {
 
 export interface DocumentItemResponse {
   item: DocumentDto;
+}
+
+export type HazardousSubstanceProductStatus = "active" | "inactive";
+
+export interface HazardousSubstanceProductDto {
+  id: string;
+  organizationId: string;
+  name: string;
+  registrationNumber: string | null;
+  activeIngredient: string | null;
+  targetCrop: string | null;
+  labelRateText: string | null;
+  preHarvestIntervalDays: number | null;
+  status: HazardousSubstanceProductStatus;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HazardousSubstanceUseEventDto {
+  id: string;
+  organizationId: string;
+  farmSiteId: string;
+  plotId: string;
+  cropCycleId: string | null;
+  productId: string;
+  workerId: string;
+  appliedAt: string;
+  quantity: number;
+  quantityUnit: string;
+  reason: string;
+  applicationMethod: string | null;
+  targetPest: string | null;
+  weatherNotes: string | null;
+  evidenceDocumentId: string;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  farmSite: { id: string; name: string; code: string | null };
+  plot: { id: string; name: string; areaRai: number | null };
+  cropCycle: {
+    id: string;
+    cropName: string;
+    startedAt: string | null;
+    endedAt: string | null;
+  } | null;
+  product: HazardousSubstanceProductDto;
+  worker: { id: string; fullName: string; roleTitle: string | null; isActive: boolean };
+  evidenceDocument: EvidenceDocumentDto;
+}
+
+export interface HazardousSubstanceProductsListDto {
+  items: HazardousSubstanceProductDto[];
+  organizationId: string;
+  filters: { status: HazardousSubstanceProductStatus | null; q: string | null };
+}
+
+export interface HazardousSubstanceUseEventsListDto {
+  items: HazardousSubstanceUseEventDto[];
+  organizationId: string;
+  filters: {
+    farmSiteId: string | null;
+    plotId: string | null;
+    cropCycleId: string | null;
+    productId: string | null;
+    workerId: string | null;
+    from: string | null;
+    to: string | null;
+  };
+}
+
+export interface HazardousSubstanceUseEventItemResponse {
+  item: HazardousSubstanceUseEventDto;
+}
+
+export interface HazardousSubstanceUseEventCreateRequest {
+  plotId: string;
+  cropCycleId?: string | null;
+  productId: string;
+  workerId: string;
+  appliedAt: string;
+  quantity: number;
+  quantityUnit: string;
+  reason: string;
+  applicationMethod?: string | null;
+  targetPest?: string | null;
+  weatherNotes?: string | null;
+  evidenceDocumentId: string;
+  notes?: string | null;
 }

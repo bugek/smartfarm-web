@@ -11,17 +11,23 @@ import type {
   EvidenceDto,
   FarmSiteDto,
   GapRecordDto,
+  HazardousSubstanceProductDto,
+  HazardousSubstanceUseEventDto,
   OrganizationDto,
   OrganizationRole,
   PlotDto,
   ReviewThreadCommentDto,
   ReviewThreadDto,
-  ReviewQueueItemDto
+  ReviewQueueItemDto,
+  WorkerDto
 } from "./dto";
 import type {
+  ChemicalProduct,
+  ChemicalUseRecord,
   Evidence,
   EvidenceUploadState,
   Farm,
+  FarmWorker,
   GapChecklistItem,
   Organization,
   Plot,
@@ -97,10 +103,58 @@ export function adaptPlot(dto: PlotDto, cropCycles: CropCycleDto[]): Plot {
   return {
     id: dto.id,
     farmId: dto.farmSite.id,
+    cropCycleId: cycle?.id,
     name: dto.name,
     crop: cycle?.cropName ?? "—",
     hectares,
     cycleLabel: cycle ? formatCycleLabel(cycle) : "Unscheduled"
+  };
+}
+
+export function adaptWorker(dto: WorkerDto): FarmWorker {
+  return {
+    id: dto.id,
+    farmId: dto.farmSiteId ?? undefined,
+    fullName: dto.fullName,
+    roleTitle: dto.roleTitle ?? undefined,
+    isActive: dto.isActive
+  };
+}
+
+export function adaptChemicalProduct(dto: HazardousSubstanceProductDto): ChemicalProduct {
+  return {
+    id: dto.id,
+    name: dto.name,
+    registrationNumber: dto.registrationNumber ?? undefined,
+    activeIngredient: dto.activeIngredient ?? undefined,
+    targetCrop: dto.targetCrop ?? undefined,
+    labelRateText: dto.labelRateText ?? undefined,
+    preHarvestIntervalDays: dto.preHarvestIntervalDays ?? undefined,
+    status: dto.status
+  };
+}
+
+export function adaptChemicalUseRecord(dto: HazardousSubstanceUseEventDto): ChemicalUseRecord {
+  return {
+    id: dto.id,
+    farmId: dto.farmSiteId,
+    plotId: dto.plotId,
+    cropCycleId: dto.cropCycleId ?? undefined,
+    productId: dto.productId,
+    productName: dto.product.name,
+    workerId: dto.workerId,
+    workerName: dto.worker.fullName,
+    appliedAt: dto.appliedAt,
+    quantity: dto.quantity,
+    quantityUnit: dto.quantityUnit,
+    reason: dto.reason,
+    applicationMethod: dto.applicationMethod ?? undefined,
+    targetPest: dto.targetPest ?? undefined,
+    weatherNotes: dto.weatherNotes ?? undefined,
+    evidenceDocumentId: dto.evidenceDocumentId,
+    evidenceFilename: dto.evidenceDocument.fileName,
+    notes: dto.notes ?? undefined,
+    state: "uploaded"
   };
 }
 
