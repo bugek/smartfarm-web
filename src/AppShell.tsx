@@ -8,6 +8,7 @@ interface Props {
 }
 
 const NAV: { key: ScreenKey; label: string; helper: string }[] = [
+  { key: "dashboard", label: "Dashboard", helper: "Readiness and next work" },
   { key: "checklist", label: "GAP checklist", helper: "Farmer record entry" },
   { key: "evidence", label: "Evidence", helper: "Upload photos, video, docs" },
   { key: "chemicals", label: "Chemical use", helper: "GAP 3 spray log" },
@@ -16,18 +17,21 @@ const NAV: { key: ScreenKey; label: string; helper: string }[] = [
 
 const ROLE_HINTS: Record<AppState["viewer"]["role"], Record<ScreenKey, string>> = {
   farmer: {
+    dashboard: "See the crop cycle state and the next GAP work you can complete now.",
     checklist: "Capture field records and keep evidence complete before expert review.",
     evidence: "Upload clear proof tied to the right GAP item so review stays fast and traceable.",
     chemicals: "Record chemical applications with operator, product, dose, timing, and proof.",
     review: "Track reviewer feedback and close requested changes before the audit window."
   },
   advisor: {
+    dashboard: "Triage crop cycles by readiness risk and open the next current record to review.",
     checklist: "Use the checklist to spot incomplete controls before you start review decisions.",
     evidence: "Check evidence quality, timing, and linkage before you clear a submission.",
     chemicals: "Check product, dose, operator, and evidence before accepting GAP 3 records.",
     review: "Leave concrete, audit-ready comments so farmers know exactly what to fix."
   },
   compliance: {
+    dashboard: "Monitor audit readiness, scheme context, and snapshot risk across active cycles.",
     checklist: "Monitor control completion across the organization and surface audit gaps early.",
     evidence: "Check whether each plot has enough traceable evidence to support readiness.",
     chemicals: "Monitor hazardous substance use records for traceable GAP 3 audit readiness.",

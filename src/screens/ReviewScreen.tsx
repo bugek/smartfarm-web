@@ -11,9 +11,8 @@ interface Props {
 }
 
 const NEXT_STATUS_OPTIONS: ReviewStatus[] = [
-  "awaiting_review",
-  "changes_requested",
   "approved",
+  "changes_requested",
   "rejected"
 ];
 
@@ -228,6 +227,11 @@ function ReviewDetailPanel({
   };
 
   const handleDecision = async () => {
+    if ((draftStatus === "changes_requested" || draftStatus === "rejected") && draft.trim().length === 0) {
+      setSubmitError("Add an expert comment before requesting more evidence or marking a record blocking.");
+      return;
+    }
+
     if (state.useMocks) {
       state.setReviewStatus(active.id, draftStatus);
       if (draft.trim()) {
@@ -274,7 +278,7 @@ function ReviewDetailPanel({
             >
               {NEXT_STATUS_OPTIONS.map((status) => (
                 <option key={status} value={status}>
-                  {statusLabel(status)}
+                  {reviewDecisionLabel(status)}
                 </option>
               ))}
             </select>
@@ -319,6 +323,17 @@ function ReviewDetailPanel({
             Farmers can follow expert feedback here and add thread comments, but only advisors and
             compliance leads can change the review decision.
           </p>
+        </div>
+      ) : null}
+
+      {canUpdateStatus ? (
+        <div
+          className={`screen-banner ${
+            draftStatus === "rejected" ? "screen-banner-error" : "screen-banner-warning"
+          }`}
+        >
+          <strong>{reviewDecisionLabel(draftStatus)}</strong>
+          <p>{reviewDecisionEffect(draftStatus)}</p>
         </div>
       ) : null}
 
@@ -412,7 +427,7 @@ function formatCommentSource(comment: ReviewComment): string {
 function formatRecordDecision(decision?: ReviewComment["decision"]): string {
   switch (decision) {
     case "approved":
-      return "Approved";
+      return "Reviewed";
     case "needs_more_evidence":
       return "Needs more evidence";
     case "blocking":
@@ -427,7 +442,7 @@ function formatRecordDecision(decision?: ReviewComment["decision"]): string {
 function formatReviewState(state?: Review["currentReviewState"]): string {
   switch (state) {
     case "approved":
-      return "Approved";
+      return "Reviewed";
     case "needs_more_evidence":
       return "Needs more evidence";
     case "blocking":
@@ -436,6 +451,32 @@ function formatReviewState(state?: Review["currentReviewState"]): string {
       return "Unreviewed";
     default:
       return "Pending";
+  }
+}
+
+function reviewDecisionLabel(status: ReviewStatus): string {
+  switch (status) {
+    case "approved":
+      return "Mark reviewed";
+    case "changes_requested":
+      return "Request more evidence";
+    case "rejected":
+      return "Mark blocking";
+    default:
+      return statusLabel(status);
+  }
+}
+
+function reviewDecisionEffect(status: ReviewStatus): string {
+  switch (status) {
+    case "approved":
+      return "This appends a reviewed decision and keeps readiness available when all required proof is present.";
+    case "changes_requested":
+      return "This appends a needs-more-evidence decision and keeps readiness partial until the farmer adds proof.";
+    case "rejected":
+      return "This appends a blocking decision and forces the cycle not ready until a replacement record is submitted.";
+    default:
+      return "This appends a review update to the audit trail.";
   }
 }
 

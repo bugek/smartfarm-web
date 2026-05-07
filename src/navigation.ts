@@ -1,6 +1,6 @@
 import type { ID } from "./types";
 
-export type ScreenKey = "checklist" | "evidence" | "chemicals" | "review";
+export type ScreenKey = "dashboard" | "checklist" | "evidence" | "chemicals" | "review";
 
 export interface AppRoute {
   screen: ScreenKey;
@@ -13,6 +13,7 @@ export interface AppRoute {
 }
 
 const SCREEN_PATHS: Record<ScreenKey, string> = {
+  dashboard: "/dashboard",
   checklist: "/checklist",
   evidence: "/evidence",
   chemicals: "/chemicals",
@@ -32,7 +33,7 @@ export function parseRoute(hash: string): AppRoute {
   const trimmed = hash.replace(/^#/, "");
   const [rawPath = "", rawQuery = ""] = trimmed.split("?");
   const normalizedPath = rawPath.startsWith("/") ? rawPath : `/${rawPath}`;
-  const screen = SCREEN_BY_PATH.get(normalizedPath) ?? "checklist";
+  const screen = SCREEN_BY_PATH.get(normalizedPath) ?? "dashboard";
   const params = new URLSearchParams(rawQuery);
 
   return {
